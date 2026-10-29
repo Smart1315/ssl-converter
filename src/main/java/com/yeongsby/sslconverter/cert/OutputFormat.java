@@ -1,4 +1,4 @@
-package com.example.sslconverter.cert;
+package com.yeongsby.sslconverter.cert;
 
 /**
  * 생성 가능한 출력 형식. 파일명의 %s 는 기본 파일명으로 치환된다.

@@ -1,4 +1,4 @@
-package com.example.sslconverter.cert;
+package com.yeongsby.sslconverter.cert;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -12,8 +12,8 @@ import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-import com.example.sslconverter.cert.ConverterService.Analysis;
-import com.example.sslconverter.cert.Exporter.ExportedFile;
+import com.yeongsby.sslconverter.cert.ConverterService.Analysis;
+import com.yeongsby.sslconverter.cert.Exporter.ExportedFile;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.openssl.jcajce.JcaPKCS8Generator;
 import org.junit.jupiter.api.BeforeAll;

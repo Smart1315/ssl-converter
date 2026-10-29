@@ -1,4 +1,4 @@
-package com.example.sslconverter.cert;
+package com.yeongsby.sslconverter.cert;
 
 import java.io.IOException;
 import java.security.GeneralSecurityException;

@@ -1,4 +1,4 @@
-package com.example.sslconverter.cert;
+package com.yeongsby.sslconverter.cert;
 
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;

@@ -1,8 +1,8 @@
-package com.example.sslconverter.web;
+package com.yeongsby.sslconverter.web;
 
 import java.util.Map;
 
-import com.example.sslconverter.cert.ConversionException;
+import com.yeongsby.sslconverter.cert.ConversionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;

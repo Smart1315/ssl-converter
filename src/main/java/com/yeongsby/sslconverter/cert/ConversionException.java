@@ -1,4 +1,4 @@
-package com.example.sslconverter.cert;
+package com.yeongsby.sslconverter.cert;
 
 /**
  * 사용자에게 그대로 보여줄 수 있는 변환/해석 오류.

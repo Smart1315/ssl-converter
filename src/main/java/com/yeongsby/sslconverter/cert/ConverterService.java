@@ -1,4 +1,4 @@
-package com.example.sslconverter.cert;
+package com.yeongsby.sslconverter.cert;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -9,9 +9,9 @@ import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
-import com.example.sslconverter.cert.CertInspector.CertDetails;
-import com.example.sslconverter.cert.Exporter.ExportResult;
-import com.example.sslconverter.cert.Exporter.ExportedFile;
+import com.yeongsby.sslconverter.cert.CertInspector.CertDetails;
+import com.yeongsby.sslconverter.cert.Exporter.ExportResult;
+import com.yeongsby.sslconverter.cert.Exporter.ExportedFile;
 import org.springframework.stereotype.Service;
 
 /**

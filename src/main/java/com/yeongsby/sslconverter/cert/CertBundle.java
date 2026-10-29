@@ -1,4 +1,4 @@
-package com.example.sslconverter.cert;
+package com.yeongsby.sslconverter.cert;
 
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
