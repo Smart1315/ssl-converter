@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SSL 인증서 변환기</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+	<div class="wrap">
+		<h1>SSL 인증서 변환기</h1>
+		<p>PEM · CRT · KEY · PFX(P12) · JKS · P7B · DER 상호 변환. 업로드한 파일은 메모리에서만 처리되고 서버에 저장되지 않습니다.</p>
+	</div>
+</header>
+
+<main class="wrap">
+	<!-- 1. 입력 -->
+	<section class="card">
+		<h2><span class="step">1</span> 입력 파일</h2>
+		<p class="hint">CA 에서 받은 파일을 <b>순서·확장자 상관없이 전부</b> 올리세요. 서버 인증서, 체인(중간/루트), 개인키, 또는 기존 PFX/JKS 모두 가능합니다.</p>
+
+		<label id="dropzone" class="dropzone">
+			<input id="fileInput" type="file" multiple hidden>
+			<strong>파일을 끌어다 놓거나 클릭해서 선택</strong>
+			<span>.crt .cer .pem .der .key .p7b .pfx .p12 .jks 등</span>
+		</label>
+		<ul id="fileList" class="file-list"></ul>
+
+		<details class="paste">
+			<summary>PEM 텍스트 직접 붙여넣기</summary>
+			<textarea id="pasteText" rows="8" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
+		</details>
+
+		<div class="row">
+			<label class="field">
+				<span>입력 비밀번호 <small>(PFX/JKS 또는 암호화된 키인 경우)</small></span>
+				<input id="inPassword" type="password" autocomplete="off">
+			</label>
+			<label class="field" id="aliasField" hidden>
+				<span>사용할 키스토어 항목(별칭)</span>
+				<select id="inAlias"></select>
+			</label>
+		</div>
+	</section>
+
+	<!-- 2. 분석 결과 -->
+	<section class="card" id="analysisCard" hidden>
+		<h2><span class="step">2</span> 분석 결과 <span id="analyzing" class="spinner" hidden></span></h2>
+		<div id="messages"></div>
+		<div id="sources" class="sources"></div>
+		<div id="chain" class="chain"></div>
+		<div id="unrelated"></div>
+	</section>
+
+	<!-- 3. 출력 -->
+	<section class="card" id="outputCard" hidden>
+		<h2><span class="step">3</span> 출력 형식</h2>
+		<div class="presets">
+			<span>빠른 선택:</span>
+			<button type="button" data-preset="nginx">Nginx</button>
+			<button type="button" data-preset="apache">Apache</button>
+			<button type="button" data-preset="tomcat">Tomcat / Spring Boot</button>
+			<button type="button" data-preset="iis">IIS / Windows</button>
+			<button type="button" data-preset="haproxy">HAProxy</button>
+			<button type="button" data-preset="all">전체</button>
+			<button type="button" data-preset="none" class="ghost">선택 해제</button>
+		</div>
+		<div id="formats" class="formats"></div>
+
+		<div class="options">
+			<label class="field">
+				<span>파일명</span>
+				<input id="baseName" type="text" autocomplete="off">
+			</label>
+			<label class="field">
+				<span>별칭(alias) <small>PFX/JKS 항목 이름</small></span>
+				<input id="outAlias" type="text" autocomplete="off">
+			</label>
+			<label class="field">
+				<span>출력 비밀번호 <small id="pwHint">PFX/JKS/암호화 키에 사용</small></span>
+				<input id="outPassword" type="password" autocomplete="new-password">
+			</label>
+			<label class="field">
+				<span>개인키 형식</span>
+				<select id="keyFormat">
+					<option value="PKCS8">PKCS#8 (BEGIN PRIVATE KEY) — 권장</option>
+					<option value="TRADITIONAL">전통 형식 (BEGIN RSA/EC PRIVATE KEY)</option>
+					<option value="PKCS8_ENCRYPTED">암호화 PKCS#8 (출력 비밀번호 사용)</option>
+				</select>
+			</label>
+		</div>
+		<div class="checks">
+			<label><input id="includeRoot" type="checkbox" checked> 루트 인증서 포함 <small>(입력에 있는 경우)</small></label>
+			<label><input id="legacyPfx" type="checkbox"> PFX 레거시 암호화 (3DES/SHA1) <small>Windows Server 2016 이하 · 구형 Java 에서 가져오기 실패 시</small></label>
+		</div>
+
+		<div class="actions">
+			<button type="button" id="downloadBtn" class="primary">변환 후 다운로드</button>
+			<span id="downloadInfo" class="muted"></span>
+		</div>
+		<div id="convertError" class="msg error" hidden></div>
+	</section>
+
+	<!-- 가이드 -->
+	<section class="card" id="guideCard" hidden>
+		<h2>서버 설정 예시</h2>
+		<div class="tabs" id="guideTabs"></div>
+		<pre id="guideBody" class="code"></pre>
+	</section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
