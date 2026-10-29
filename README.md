@@ -34,8 +34,29 @@ docker run -d --name ssl-converter -p 127.0.0.1:8080:8080 --read-only --tmpfs /t
 ```
 
 - 멀티 스테이지 빌드입니다. 빌드는 JDK 17, 실행은 JRE 17 이미지에서 하고, root가 아닌 `app` 사용자로 실행합니다
+- `linux/amd64`와 `linux/arm64`(Apple Silicon, AWS Graviton, 라즈베리파이 64비트 등)를 지원합니다. 위 명령은 빌드하는 PC의 아키텍처로 만듭니다
 - 컨테이너 파일시스템은 읽기 전용(`--read-only`)이어도 동작합니다. 업로드한 파일은 디스크에 쓰지 않고 메모리에서만 처리합니다
 - 이미지 빌드 중에는 테스트를 실행하지 않습니다. 테스트는 `./mvnw test`로 따로 실행하세요
+
+#### amd64 + arm64 통합 이미지
+
+두 아키텍처를 이미지 하나(멀티 아키텍처 매니페스트)로 만들려면 `buildx`를 사용합니다.
+같은 태그로 `docker pull`/`docker run`을 하면 각 서버가 자기 아키텍처에 맞는 이미지를 자동으로 받습니다.
+
+```bash
+# 레지스트리에 올리기
+docker buildx build --platform linux/amd64,linux/arm64 -t registry.example.com/ssl-converter:latest --push .
+
+# 로컬에만 저장 (Docker Desktop의 containerd 이미지 저장소가 켜져 있어야 합니다)
+docker buildx build --platform linux/amd64,linux/arm64 -t ssl-converter:latest --load .
+
+# 다른 아키텍처의 이미지로 실행해 보기
+docker run --rm --platform linux/arm64 -p 127.0.0.1:8080:8080 ssl-converter:latest
+```
+
+- jar는 아키텍처와 관계없으므로 Maven 빌드 단계는 빌드하는 PC의 아키텍처에서 한 번만 실행합니다. 실행 이미지만 대상 아키텍처별로 만들어 에뮬레이션(QEMU) 때문에 느려지지 않습니다
+- Docker Desktop에는 다른 아키텍처의 에뮬레이션이 기본으로 들어 있습니다. Linux 서버에서 빌드하려면 먼저 `docker run --privileged --rm tonistiigi/binfmt --install all`로 에뮬레이터를 설치하세요
+- 로컬 저장소가 containerd를 쓰지 않으면 `--load`가 멀티 아키텍처 이미지를 저장하지 못합니다. 그때는 `--push`로 레지스트리에 올리거나 `--platform linux/arm64`처럼 하나만 지정하세요
 
 ## 기존 수작업과 비교
 
