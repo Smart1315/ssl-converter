@@ -4,11 +4,15 @@ import java.io.StringWriter;
 import java.math.BigInteger;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.PublicKey;
+import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.security.spec.ECGenParameterSpec;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
+
+import javax.security.auth.x500.X500Principal;
 
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.BasicConstraints;
@@ -81,6 +85,33 @@ final class TestCertificates {
 			generator.initialize(2048);
 		}
 		return generator.generateKeyPair();
+	}
+
+	static KeyPair rsaKey(int bits) throws Exception {
+		KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+		generator.initialize(bits);
+		return generator.generateKeyPair();
+	}
+
+	/**
+	 * 확장을 직접 지정해 인증서를 발급한다 (점검 항목 테스트용).
+	 */
+	static X509Certificate issue(String subject, PublicKey subjectKey, X509Certificate issuer, KeyPair issuerKey,
+			String signatureAlgorithm, ExtensionCustomizer customizer) throws Exception {
+		Instant now = Instant.now();
+		JcaX509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(issuer.getSubjectX500Principal(),
+				new BigInteger(64, new SecureRandom()), Date.from(now.minus(Duration.ofDays(1))),
+				Date.from(now.plus(Duration.ofDays(365))), new X500Principal(subject), subjectKey);
+		customizer.customize(builder);
+		return new JcaX509CertificateConverter()
+			.getCertificate(builder.build(new JcaContentSignerBuilder(signatureAlgorithm).build(issuerKey.getPrivate())));
+	}
+
+	@FunctionalInterface
+	interface ExtensionCustomizer {
+
+		void customize(JcaX509v3CertificateBuilder builder) throws Exception;
+
 	}
 
 	private static X509Certificate issue(String subject, KeyPair subjectKey, String issuer, KeyPair issuerKey,

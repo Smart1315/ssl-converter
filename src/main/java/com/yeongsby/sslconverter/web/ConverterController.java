@@ -41,8 +41,9 @@ public class ConverterController {
 	public Analysis analyze(@RequestParam(name = "files", required = false) List<MultipartFile> files,
 			@RequestParam(name = "text", required = false) String text,
 			@RequestParam(name = "password", required = false) String password,
-			@RequestParam(name = "alias", required = false) String alias) throws IOException {
-		return this.service.analyze(sources(files, text), chars(password), blankToNull(alias));
+			@RequestParam(name = "alias", required = false) String alias,
+			@RequestParam(name = "checkRevocation", defaultValue = "false") boolean checkRevocation) throws IOException {
+		return this.service.analyze(sources(files, text), chars(password), blankToNull(alias), checkRevocation);
 	}
 
 	@PostMapping(path = "/convert", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

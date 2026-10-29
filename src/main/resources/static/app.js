@@ -90,7 +90,9 @@ async function analyze() {
 	$('analysisCard').hidden = false;
 	$('analyzing').hidden = false;
 	try {
-		const res = await fetch('api/analyze', { method: 'POST', body: inputFormData() });
+		const fd = inputFormData();
+		if ($('checkRevocation').checked) fd.append('checkRevocation', 'true');
+		const res = await fetch('api/analyze', { method: 'POST', body: fd });
 		const data = await res.json();
 		if (seq !== state.analyzeSeq) return;
 		if (!res.ok) throw new Error(data.message || res.statusText);
@@ -100,14 +102,35 @@ async function analyze() {
 		if (seq !== state.analyzeSeq) return;
 		state.analysis = null;
 		$('messages').innerHTML = `<div class="msg error">${esc(e.message)}</div>`;
-		$('sources').innerHTML = $('chain').innerHTML = $('unrelated').innerHTML = '';
+		$('sources').innerHTML = $('chain').innerHTML = $('unrelated').innerHTML = $('checklist').innerHTML = '';
 		$('outputCard').hidden = $('guideCard').hidden = true;
 	} finally {
 		if (seq === state.analyzeSeq) $('analyzing').hidden = true;
 	}
 }
 
+const CHECK_ICONS = { PASS: '✔', WARN: '!', FAIL: '✖', SKIPPED: '–' };
+
+function renderChecklist(checks) {
+	if (!checks || !checks.length) {
+		$('checklist').innerHTML = '';
+		return;
+	}
+	const count = (s) => checks.filter((c) => c.status === s).length;
+	const fail = count('FAIL');
+	const warn = count('WARN');
+	const head = fail ? `<span style="color:var(--err)">문제 ${fail}건</span>${warn ? ` · 확인 필요 ${warn}건` : ''}`
+		: warn ? `<span style="color:var(--warn)">확인 필요 ${warn}건</span>` : '<span style="color:var(--ok)">모든 점검 통과</span>';
+	$('checklist').innerHTML = `<div class="checklist-head"><span>점검 결과</span><small>${head}</small></div>`
+		+ checks.map((c) => `<div class="check ${c.status}">
+			<span class="icon">${CHECK_ICONS[c.status] || ''}</span>
+			<span class="title">${esc(c.title)}</span>
+			<span class="detail">${esc(c.summary)}${c.details.length ? `<ul>${c.details.map((d) => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}</span>
+		</div>`).join('');
+}
+
 function renderAnalysis(a) {
+	renderChecklist(a.checks);
 	const msgs = [];
 	a.errors.forEach((m) => msgs.push(`<div class="msg error">${esc(m)}</div>`));
 	a.warnings.forEach((m) => msgs.push(`<div class="msg warn">⚠ ${esc(m)}</div>`));
@@ -124,7 +147,7 @@ function renderAnalysis(a) {
 
 	const b = a.bundle;
 	if (!b) {
-		$('chain').innerHTML = $('unrelated').innerHTML = '';
+		$('chain').innerHTML = $('unrelated').innerHTML = $('checklist').innerHTML = '';
 		$('outputCard').hidden = $('guideCard').hidden = true;
 		return;
 	}
@@ -417,6 +440,7 @@ function init() {
 	$('pasteText').addEventListener('input', () => scheduleAnalyze(600));
 	$('inPassword').addEventListener('input', () => scheduleAnalyze(600));
 	$('inAlias').addEventListener('change', () => scheduleAnalyze(0));
+	$('checkRevocation').addEventListener('change', () => scheduleAnalyze(0));
 
 	$('chain').addEventListener('click', toggleCert);
 	$('unrelated').addEventListener('click', toggleCert);

@@ -82,11 +82,27 @@ docker run -d --name ssl-converter -p 127.0.0.1:8080:8080 --read-only --tmpfs /t
 
 ## 자동 점검 항목
 
-- 개인키와 인증서가 서로 맞는 쌍인지 확인합니다 (맞지 않으면 키가 필요한 출력은 만들지 않습니다)
-- 개인키가 아예 없으면 경고합니다. 이때 만든 PFX/JKS에는 인증서만 들어 있어 서버에 설치할 수 없습니다
-- 중간 인증서가 빠졌으면 경고하고, AIA에 있는 발급자 인증서 다운로드 주소를 함께 보여줍니다
-- 만료되었거나 30일 안에 만료되는 인증서, 만료된 체인 인증서를 경고합니다
-- 체인과 관계없는 인증서는 출력에서 빼고 따로 표시합니다
+분석 화면 맨 위의 점검표에 항목별로 통과(✔), 확인 필요(!), 문제(✖), 미실행(–)을 표시합니다.
+
+| 항목 | 점검 내용 | 문제(✖)로 판정하는 경우 |
+|---|---|---|
+| 개인키 일치 | 개인키와 서버 인증서가 쌍인지 확인 | 입력한 키가 인증서와 맞지 않음 (키가 아예 없으면 확인 필요) |
+| 체인 구성 | 발급 관계를 따라 서버 → 중간 → 루트 정렬 | 중간 인증서 누락 (AIA의 다운로드 주소 안내) |
+| 유효기간 | 서버, 중간, 루트 인증서 모두 확인 | 만료됨 또는 유효기간 시작 전 (30일 이내 만료는 확인 필요) |
+| 도메인(SAN) | 주체 대체 이름 목록 | SAN 없음 (최신 브라우저는 CN만으로는 도메인을 인정하지 않음) |
+| 서버 인증 용도 | EKU의 serverAuth, KeyUsage, CA 여부 | 클라이언트/코드서명용 인증서이거나 KeyUsage가 TLS에 맞지 않음 |
+| 키 길이 | 서버와 중간 인증서의 공개키 | RSA 2048비트 미만, EC 256비트 미만 |
+| 서명 알고리즘 | 서버와 중간 인증서의 서명 | SHA-1, MD5, MD2 (루트의 자체 서명은 제외) |
+| 공인 루트 신뢰 | Java 기본 신뢰 저장소(cacerts)까지 경로 검증. 교차 서명 체인도 브라우저처럼 처리 | 판정하지 않음. 연결되지 않으면 확인 필요 (사내/사설 CA라면 정상) |
+| 폐기 여부 | 선택 시 OCSP(우선) 또는 CRL로 조회하고 응답 서명도 검증 | 폐기됨 |
+
+이 밖에 체인과 관계없는 인증서는 출력에서 빼고 따로 표시합니다.
+
+**폐기 여부 온라인 확인**은 '폐기 여부 온라인 확인'을 체크했을 때만 실행합니다. API에서는 `checkRevocation=true`로 켭니다.
+- 인증서에 적힌 CA 서버(OCSP/CRL)에 접속하므로 인터넷이 필요합니다. 막힌 환경에서는 '확인 실패'로 표시됩니다
+- 조작된 인증서로 내부망을 조회하는 것(SSRF)을 막기 위해 http/https 주소만 허용합니다. 사설·루프백 주소에는 접속하지 않습니다
+  - 사내 CA의 OCSP가 내부망에 있다면 `ssl-converter.revocation.allow-private-addresses=true`로 허용할 수 있습니다
+  - Docker에서는 환경변수 `SSL_CONVERTER_REVOCATION_ALLOW_PRIVATE_ADDRESSES=true`로 지정합니다
 
 ## API
 
@@ -105,6 +121,7 @@ curl -o out.zip -F files=@ssl.crt -F files=@chain.crt -F files=@ssl.key \
 |---|---|
 | `files` (여러 개), `text` | 입력 파일, 붙여넣은 PEM 텍스트 |
 | `password`, `alias` | 입력 키스토어/암호화 키 비밀번호, 사용할 키스토어 별칭 |
+| `checkRevocation` (분석 전용, 기본 false) | OCSP/CRL 온라인 폐기 확인 |
 | `formats` | `FULLCHAIN_PEM` `CERT_PEM` `CHAIN_PEM` `KEY_PEM` `COMBINED_PEM` `PFX` `JKS` `TRUSTSTORE_JKS` `P7B` `DER` |
 | `baseName`, `outAlias`, `outPassword` | 출력 파일명, 별칭, 비밀번호 |
 | `includeRoot` (기본 true), `legacyPfx` (기본 false), `keyFormat` (`PKCS8` / `TRADITIONAL` / `PKCS8_ENCRYPTED`) | 출력 옵션 |

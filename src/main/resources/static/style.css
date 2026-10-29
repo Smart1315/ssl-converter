@@ -105,6 +105,23 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
 .msg.warn { background: var(--warn-soft); color: var(--warn); }
 .msg.info { background: var(--accent-soft); color: var(--text); }
 
+.checklist { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+.checklist:empty { display: none; }
+.check { display: grid; grid-template-columns: 26px 130px 1fr; gap: 8px; padding: 7px 12px; border-top: 1px solid var(--line); align-items: start; }
+.check:first-child { border-top: 0; }
+.check .icon { font-weight: 700; text-align: center; }
+.check .title { font-weight: 600; }
+.check.PASS .icon { color: var(--ok); }
+.check.WARN { background: var(--warn-soft); }
+.check.WARN .icon { color: var(--warn); }
+.check.FAIL { background: var(--err-soft); }
+.check.FAIL .icon, .check.FAIL .title { color: var(--err); }
+.check.SKIPPED { color: var(--muted); }
+.check ul { margin: 4px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); }
+.check.WARN ul, .check.FAIL ul { color: var(--text); }
+.checklist-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--code); font-weight: 600; border-bottom: 1px solid var(--line); }
+.checklist-head small { font-weight: normal; }
+
 .sources { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
 .source { font-size: 12px; background: var(--code); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
 .source b { font-weight: 600; }
@@ -169,5 +186,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 @media (max-width: 600px) {
 	.card { padding: 14px; }
 	.cert dl { grid-template-columns: 1fr; }
+	.check { grid-template-columns: 22px 1fr; }
+	.check .detail { grid-column: 2; }
 	.formats { grid-template-columns: 1fr; }
 }

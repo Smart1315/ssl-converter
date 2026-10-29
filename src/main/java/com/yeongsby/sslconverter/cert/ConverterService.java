@@ -29,13 +29,23 @@ public class ConverterService {
 
 	private final Exporter exporter;
 
-	public ConverterService(InputParser parser, ChainResolver resolver, Exporter exporter) {
+	private final CertificateChecks checks;
+
+	public ConverterService(InputParser parser, ChainResolver resolver, Exporter exporter, CertificateChecks checks) {
 		this.parser = parser;
 		this.resolver = resolver;
 		this.exporter = exporter;
+		this.checks = checks;
 	}
 
 	public Analysis analyze(List<InputSource> sources, char[] password, String alias) {
+		return analyze(sources, password, alias, false);
+	}
+
+	/**
+	 * @param checkRevocation true 면 CA 의 OCSP/CRL 서버에 접속해 폐기 여부를 확인한다
+	 */
+	public Analysis analyze(List<InputSource> sources, char[] password, String alias, boolean checkRevocation) {
 		ParsedInput input = this.parser.parse(sources, password, alias);
 		CertBundle bundle = this.resolver.resolve(input);
 		List<String> errors = new ArrayList<>(input.errors());
@@ -46,6 +56,7 @@ public class ConverterService {
 		List<String> warnings = new ArrayList<>(input.warnings());
 		List<String> notices = new ArrayList<>();
 		BundleView view = null;
+		List<CheckResult> checkResults = List.of();
 		if (bundle != null) {
 			warnings.addAll(bundle.warnings());
 			notices.addAll(bundle.notices());
@@ -53,9 +64,10 @@ public class ConverterService {
 				warnings.add(NO_KEY_WARNING);
 			}
 			view = toView(bundle);
+			checkResults = this.checks.run(bundle, !input.privateKeys().isEmpty(), checkRevocation);
 		}
-		return new Analysis(input.sources(), input.keystoreEntries(), input.selectedAlias(), view, warnings, notices,
-				errors, (bundle != null) ? suggestedBaseName(bundle.leaf()) : null,
+		return new Analysis(input.sources(), input.keystoreEntries(), input.selectedAlias(), view, checkResults,
+				warnings, notices, errors, (bundle != null) ? suggestedBaseName(bundle.leaf()) : null,
 				(bundle != null) ? suggestedAlias(bundle.leaf()) : null);
 	}
 
@@ -219,8 +231,8 @@ public class ConverterService {
 	 * 분석 결과 (웹 화면 표시용).
 	 */
 	public record Analysis(List<ParsedInput.SourceSummary> sources, List<ParsedInput.KeystoreEntry> keystoreEntries,
-			String selectedAlias, BundleView bundle, List<String> warnings, List<String> notices, List<String> errors,
-			String suggestedBaseName, String suggestedAlias) {
+			String selectedAlias, BundleView bundle, List<CheckResult> checks, List<String> warnings,
+			List<String> notices, List<String> errors, String suggestedBaseName, String suggestedAlias) {
 	}
 
 	/**

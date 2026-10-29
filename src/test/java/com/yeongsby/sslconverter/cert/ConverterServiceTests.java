@@ -29,7 +29,7 @@ class ConverterServiceTests {
 	private static TestCertificates rsa;
 
 	private final ConverterService service = new ConverterService(new InputParser(), new ChainResolver(),
-			new Exporter());
+			new Exporter(), new CertificateChecks(new RevocationChecker(false)));
 
 	@BeforeAll
 	static void createCertificates() throws Exception {

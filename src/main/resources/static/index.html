@@ -42,11 +42,15 @@
 				<select id="inAlias"></select>
 			</label>
 		</div>
+		<div class="checks">
+			<label><input id="checkRevocation" type="checkbox"> 폐기 여부 온라인 확인 (OCSP/CRL) <small>인증서에 적힌 CA 서버에 접속합니다. 인터넷이 막힌 환경에서는 '확인 실패'로 표시됩니다</small></label>
+		</div>
 	</section>
 
 	<!-- 2. 분석 결과 -->
 	<section class="card" id="analysisCard" hidden>
 		<h2><span class="step">2</span> 분석 결과 <span id="analyzing" class="spinner" hidden></span></h2>
+		<div id="checklist" class="checklist"></div>
 		<div id="messages"></div>
 		<div id="sources" class="sources"></div>
 		<div id="chain" class="chain"></div>
