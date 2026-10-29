@@ -59,6 +59,7 @@ import org.springframework.stereotype.Component;
  * <li>PEM 헤더 없는 Base64</li>
  * <li>DER: X.509 인증서, PKCS#7(P7B), PKCS#8/PKCS#1/SEC1 개인키, 암호화된 PKCS#8</li>
  * <li>키스토어: PKCS#12(PFX/P12), JKS, JCEKS</li>
+ * <li>위 파일들을 담은 ZIP 압축파일 (폴더, 중첩 ZIP 1단계 포함)</li>
  * </ul>
  */
 @Component
@@ -79,6 +80,8 @@ public class InputParser {
 
 	private static final Pattern BASE64_ONLY = Pattern.compile("[A-Za-z0-9+/=\\s]+");
 
+	private static final int MAX_ARCHIVE_DEPTH = 2;
+
 	private final JcaX509CertificateConverter certificateConverter = new JcaX509CertificateConverter();
 
 	private final JcaPEMKeyConverter keyConverter = new JcaPEMKeyConverter();
@@ -86,23 +89,87 @@ public class InputParser {
 	public ParsedInput parse(List<InputSource> sources, char[] password, String alias) {
 		ParsedInput result = new ParsedInput();
 		for (InputSource source : sources) {
-			if (source.data() == null || source.data().length == 0) {
-				continue;
-			}
-			Collector collector = new Collector(result);
-			try {
-				parseSource(source.data(), password, alias, source.name(), collector);
-			}
-			catch (ConversionException ex) {
-				result.addError(source.name() + ": " + ex.getMessage());
-			}
-			catch (Exception ex) {
-				result.addError(source.name() + ": 처리 중 오류가 발생했습니다 - " + ex.getMessage());
-			}
-			result.addSource(new ParsedInput.SourceSummary(source.name(), String.join(", ", collector.formats),
-					collector.certificates, collector.privateKeys, collector.notes));
+			parseInput(source, password, alias, result, 0);
 		}
 		return result;
+	}
+
+	/**
+	 * @param depth 0 이면 사용자가 직접 올린 파일, 1 이상이면 압축파일 안의 파일. 압축파일 안의 파일에서 난 문제는 오류가 아니라 경고로 남긴다
+	 * (CA 압축파일에는 비밀번호를 모르는 PFX 나 안내 문서 등이 함께 들어 있는 경우가 많기 때문).
+	 */
+	private void parseInput(InputSource source, char[] password, String alias, ParsedInput result, int depth) {
+		if (source.data() == null || source.data().length == 0) {
+			return;
+		}
+		if (ArchiveExtractor.isZip(source.data())) {
+			parseArchive(source, password, alias, result, depth);
+			return;
+		}
+		boolean inArchive = depth > 0;
+		Collector collector = new Collector(result);
+		try {
+			parseSource(source.data(), password, alias, source.name(), collector);
+		}
+		catch (UnrecognizedInputException ex) {
+			if (inArchive) {
+				throw ex;
+			}
+			result.addError(source.name() + ": " + ex.getMessage());
+		}
+		catch (ConversionException ex) {
+			report(result, inArchive, source.name() + ": " + ex.getMessage());
+		}
+		catch (Exception ex) {
+			report(result, inArchive, source.name() + ": 처리 중 오류가 발생했습니다 - " + ex.getMessage());
+		}
+		result.addSource(new ParsedInput.SourceSummary(source.name(), String.join(", ", collector.formats),
+				collector.certificates, collector.privateKeys, collector.notes));
+	}
+
+	private void parseArchive(InputSource archive, char[] password, String alias, ParsedInput result, int depth) {
+		List<String> notes = new ArrayList<>();
+		result.addSource(new ParsedInput.SourceSummary(archive.name(), "ZIP 압축파일", 0, 0, notes));
+		if (depth >= MAX_ARCHIVE_DEPTH) {
+			notes.add("압축파일 안의 압축파일이 너무 깊어 건너뛰었습니다");
+			return;
+		}
+		ArchiveExtractor.Extracted extracted;
+		try {
+			extracted = ArchiveExtractor.extract(archive.data());
+		}
+		catch (ConversionException ex) {
+			report(result, depth > 0, archive.name() + ": " + ex.getMessage());
+			return;
+		}
+		List<String> skipped = new ArrayList<>(extracted.skipped());
+		int used = 0;
+		for (InputSource entry : extracted.entries()) {
+			try {
+				parseInput(new InputSource(archive.name() + "/" + entry.name(), entry.data()), password, alias, result,
+						depth + 1);
+				used++;
+			}
+			catch (UnrecognizedInputException ex) {
+				skipped.add(entry.name());
+			}
+		}
+		notes.add("파일 " + (used + skipped.size()) + "개 중 " + used + "개에서 인증서/키를 찾았습니다");
+		if (!skipped.isEmpty()) {
+			notes.add("인증서가 아니어서 건너뛴 파일: " + String.join(", ", skipped));
+		}
+		if (used == 0) {
+			report(result, depth > 0, archive.name() + ": 압축파일 안에서 인증서/키 파일을 찾지 못했습니다");
+		}
+	}
+
+	private static void report(ParsedInput result, boolean warningOnly, String message) {
+		if (warningOnly) {
+			result.addWarning(message);
+		}
+		else {
+			result.addError(message);
+		}
 	}
 
 	private void parseSource(byte[] data, char[] password, String alias, String name, Collector collector)
@@ -115,7 +182,7 @@ public class InputParser {
 		if (text != null) {
 			String compact = text.strip();
 			if (compact.length() < 64 || !BASE64_ONLY.matcher(compact).matches()) {
-				throw new ConversionException("인증서/키 데이터를 찾을 수 없습니다 (PEM 헤더 없음, Base64 아님)");
+				throw new UnrecognizedInputException("인증서/키 데이터를 찾을 수 없습니다 (PEM 헤더 없음, Base64 아님)");
 			}
 			data = Base64.getMimeDecoder().decode(compact);
 			collector.notes.add("PEM 헤더 없는 Base64 데이터를 디코딩했습니다");
@@ -202,10 +269,10 @@ public class InputParser {
 			primitive = ASN1Primitive.fromByteArray(data);
 		}
 		catch (IOException | RuntimeException ex) {
-			throw new ConversionException("인식할 수 없는 파일 형식입니다 (PEM/DER/PFX/JKS 아님)");
+			throw new UnrecognizedInputException("인식할 수 없는 파일 형식입니다 (PEM/DER/PFX/JKS 아님)");
 		}
 		if (!(primitive instanceof ASN1Sequence seq) || seq.size() < 2) {
-			throw new ConversionException("인식할 수 없는 DER 구조입니다");
+			throw new UnrecognizedInputException("인식할 수 없는 DER 구조입니다");
 		}
 		Object first = seq.getObjectAt(0);
 		Object second = seq.getObjectAt(1);
@@ -252,7 +319,7 @@ public class InputParser {
 			accept(info, "EC PRIVATE KEY", password, collector);
 		}
 		else {
-			throw new ConversionException("인식할 수 없는 DER 구조입니다");
+			throw new UnrecognizedInputException("인식할 수 없는 DER 구조입니다");
 		}
 	}
 

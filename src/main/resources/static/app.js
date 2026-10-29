@@ -255,6 +255,8 @@ function updateDownloadInfo() {
 	$('downloadInfo').textContent = sel.length === 0 ? '형식을 선택하세요'
 		: sel.length === 1 ? '파일 1개 다운로드' : `${sel.length}개 파일을 ZIP 으로 다운로드`;
 	$('downloadBtn').disabled = sel.length === 0;
+	const hasKey = !!state.analysis?.bundle?.privateKey;
+	$('noKeyWarning').hidden = hasKey || !sel.some((id) => id === 'PFX' || id === 'JKS');
 }
 
 async function download() {

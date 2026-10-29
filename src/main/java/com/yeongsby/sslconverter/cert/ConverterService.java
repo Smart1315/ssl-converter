@@ -20,6 +20,9 @@ import org.springframework.stereotype.Service;
 @Service
 public class ConverterService {
 
+	static final String NO_KEY_WARNING = "개인키가 입력되지 않았습니다. 서버에 설치할 .key/PFX/JKS 를 만들려면 개인키 파일을 추가하거나 "
+			+ "-----BEGIN PRIVATE KEY----- 블록을 함께 붙여넣으세요. (개인키 없이 만든 PFX/JKS 에는 인증서만 들어갑니다)";
+
 	private final InputParser parser;
 
 	private final ChainResolver resolver;
@@ -46,6 +49,9 @@ public class ConverterService {
 		if (bundle != null) {
 			warnings.addAll(bundle.warnings());
 			notices.addAll(bundle.notices());
+			if (input.privateKeys().isEmpty()) {
+				warnings.add(NO_KEY_WARNING);
+			}
 			view = toView(bundle);
 		}
 		return new Analysis(input.sources(), input.keystoreEntries(), input.selectedAlias(), view, warnings, notices,
@@ -123,7 +129,11 @@ public class ConverterService {
 		text.append("별칭(alias): ").append(options.alias()).append("\r\n");
 		text.append("루트 인증서 포함: ").append(options.includeRoot() ? "예" : "아니오").append("\r\n");
 		text.append("PFX 암호화: ").append(options.legacyPfx() ? "레거시(3DES/SHA1)" : "기본(AES-256/SHA-256)").append("\r\n");
-		text.append("※ 비밀번호는 이 파일에 기록하지 않습니다.\r\n\r\n");
+		text.append("※ 비밀번호는 이 파일에 기록하지 않습니다.\r\n");
+		if (!bundle.hasPrivateKey()) {
+			text.append("※ 개인키 없음: PFX/JKS 에는 인증서만 들어 있어 서버 인증서로 사용할 수 없습니다.\r\n");
+		}
+		text.append("\r\n");
 		text.append("[생성된 파일]\r\n");
 		for (ExportedFile file : result.files()) {
 			text.append(" - ").append(file.fileName()).append(" (").append(file.data().length).append(" bytes)\r\n");

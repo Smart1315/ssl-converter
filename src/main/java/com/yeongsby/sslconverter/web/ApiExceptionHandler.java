@@ -24,7 +24,7 @@ public class ApiExceptionHandler {
 	@ExceptionHandler(MaxUploadSizeExceededException.class)
 	public ResponseEntity<Map<String, String>> tooLarge(MaxUploadSizeExceededException ex) {
 		return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
-			.body(Map.of("message", "업로드 파일이 너무 큽니다 (파일당 최대 5MB)."));
+			.body(Map.of("message", "업로드 파일이 너무 큽니다 (파일당 최대 10MB)."));
 	}
 
 	@ExceptionHandler(Exception.class)

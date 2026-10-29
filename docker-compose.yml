@@ -1,0 +1,13 @@
+services:
+  ssl-converter:
+    build: .
+    image: ssl-converter:latest
+    container_name: ssl-converter
+    # 개인키를 다루므로 기본은 이 PC(localhost)에서만 접속 가능.
+    # 내부망 다른 PC 에서도 쓰려면 "8080:8080" 으로 바꾸세요.
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp

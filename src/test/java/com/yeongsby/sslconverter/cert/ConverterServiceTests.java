@@ -134,6 +134,7 @@ class ConverterServiceTests {
 		assertThat(analysis.bundle().certificates()).hasSize(2);
 		assertThat(analysis.bundle().privateKey()).isNotNull();
 		assertThat(analysis.bundle().rootIncluded()).isFalse();
+		assertThat(analysis.warnings()).doesNotContain(ConverterService.NO_KEY_WARNING);
 		assertThat(analysis.notices()).anyMatch((n) -> n.contains("Test Root CA"));
 	}
 
@@ -194,6 +195,15 @@ class ConverterServiceTests {
 		assertThatThrownBy(() -> convert(sources, options(EnumSet.of(OutputFormat.KEY_PEM), false)))
 			.isInstanceOf(ConversionException.class)
 			.hasMessageContaining("개인키");
+	}
+
+	@Test
+	void missingPrivateKeyIsWarned() throws Exception {
+		Analysis analysis = this.service.analyze(
+				List.of(source("paste", TestCertificates.pem(rsa.leaf, rsa.intermediate))), null, null);
+		assertThat(analysis.errors()).isEmpty();
+		assertThat(analysis.bundle().privateKey()).isNull();
+		assertThat(analysis.warnings()).contains(ConverterService.NO_KEY_WARNING);
 	}
 
 	@Test

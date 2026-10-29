@@ -23,13 +23,13 @@
 		<label id="dropzone" class="dropzone">
 			<input id="fileInput" type="file" multiple hidden>
 			<strong>파일을 끌어다 놓거나 클릭해서 선택</strong>
-			<span>.crt .cer .pem .der .key .p7b .pfx .p12 .jks 등</span>
+			<span>.crt .cer .pem .der .key .p7b .pfx .p12 .jks .zip 등 — CA 에서 받은 ZIP 그대로 올려도 됩니다</span>
 		</label>
 		<ul id="fileList" class="file-list"></ul>
 
 		<details class="paste">
-			<summary>PEM 텍스트 직접 붙여넣기</summary>
-			<textarea id="pasteText" rows="8" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
+			<summary>PEM 텍스트 직접 붙여넣기 <small>(인증서 · 체인 · 개인키를 함께 붙여넣을 수 있고, 파일 업로드와 같이 써도 됩니다)</small></summary>
+			<textarea id="pasteText" rows="8" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----&#10;(서버 인증서)&#10;-----END CERTIFICATE-----&#10;-----BEGIN CERTIFICATE-----&#10;(중간 인증서)&#10;-----END CERTIFICATE-----&#10;-----BEGIN PRIVATE KEY-----&#10;(개인키 — PFX/JKS/.key 를 만들려면 필요)&#10;-----END PRIVATE KEY-----"></textarea>
 		</details>
 
 		<div class="row">
@@ -67,6 +67,7 @@
 			<button type="button" data-preset="none" class="ghost">선택 해제</button>
 		</div>
 		<div id="formats" class="formats"></div>
+		<div id="noKeyWarning" class="msg warn" hidden>⚠ 개인키가 없어 PFX/JKS 에는 인증서만 들어갑니다. 서버(Tomcat, IIS 등)에 설치하려면 1단계에서 개인키를 추가하세요.</div>
 
 		<div class="options">
 			<label class="field">
