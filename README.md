@@ -3,6 +3,8 @@
 Spring Boot 기반 웹 애플리케이션입니다. SSL 인증서를 PEM · CRT · KEY · PFX(P12) · JKS · P7B · DER 형식 사이에서 변환합니다.
 OpenSSL이나 keytool 없이 Java(BouncyCastle)만으로 동작하며, 업로드한 파일은 메모리에서만 처리하고 서버에 저장하지 않습니다.
 
+테스트 주소: https://tool.yeongsby.com/ssl-converter
+
 ## 실행
 
 ```bash
