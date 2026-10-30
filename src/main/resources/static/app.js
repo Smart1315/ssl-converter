@@ -1,5 +1,8 @@
 'use strict';
 
+// 브라우저 전용(WebAssembly) 판에서는 bridge.js 가 sslApiFetch 를 제공해 서버 없이 처리한다
+const apiFetch = (url, init) => (window.sslApiFetch ? window.sslApiFetch(url, init) : fetch(url, init));
+
 const FORMATS = [
 	{ id: 'FULLCHAIN_PEM', name: '풀체인 PEM', file: '{b}_fullchain.pem', desc: '서버 인증서 + 중간(+루트). Nginx ssl_certificate, 기존 cat 으로 만들던 .pem' },
 	{ id: 'KEY_PEM', name: '개인키 PEM', file: '{b}.key', desc: 'Nginx ssl_certificate_key, Apache SSLCertificateKeyFile', key: true },
@@ -92,7 +95,7 @@ async function analyze() {
 	try {
 		const fd = inputFormData();
 		if ($('checkRevocation').checked) fd.append('checkRevocation', 'true');
-		const res = await fetch('api/analyze', { method: 'POST', body: fd });
+		const res = await apiFetch('api/analyze', { method: 'POST', body: fd });
 		const data = await res.json();
 		if (seq !== state.analyzeSeq) return;
 		if (!res.ok) throw new Error(data.message || res.statusText);
@@ -303,7 +306,7 @@ async function download() {
 	const btn = $('downloadBtn');
 	btn.disabled = true;
 	try {
-		const res = await fetch('api/convert', { method: 'POST', body: fd });
+		const res = await apiFetch('api/convert', { method: 'POST', body: fd });
 		if (!res.ok) {
 			const data = await res.json().catch(() => ({}));
 			throw new Error(data.message || res.statusText);

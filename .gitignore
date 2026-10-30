@@ -31,3 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### WebAssembly 빌드 결과 ###
+wasm/dist/

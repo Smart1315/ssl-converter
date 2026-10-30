@@ -1,0 +1,191 @@
+//go:build js && wasm
+
+// 브라우저(Web Worker)에서 실행되는 진입점. 전역 객체 sslConverter 에 analyze/convert 를 등록한다.
+// 두 함수 모두 Promise 를 돌려주며, 결과 형식은 web/bridge.js 가 Java 판 API 응답(fetch Response)으로 바꾼다.
+package main
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"syscall/js"
+	"time"
+
+	"sslconverter/cert"
+)
+
+func main() {
+	// Go 의 WebAssembly 런타임은 시간대를 모르므로 브라우저의 시간대로 맞춘다
+	offset := js.Global().Get("Date").New().Call("getTimezoneOffset").Int()
+	time.Local = time.FixedZone("Local", -offset*60)
+	cert.RevocationFetcher = fetch
+
+	api := js.Global().Get("Object").New()
+	api.Set("analyze", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		request := args[0]
+		return promise(func() (map[string]any, error) {
+			analysis := cert.Analyze(sources(request), str(request, "password"), str(request, "alias"),
+				str(request, "checkRevocation") == "true")
+			encoded, err := json.Marshal(analysis)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"ok": true, "status": 200, "json": string(encoded)}, nil
+		})
+	}))
+	api.Set("convert", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		request := args[0]
+		return promise(func() (map[string]any, error) {
+			options, err := exportOptions(request)
+			if err != nil {
+				return nil, err
+			}
+			file, err := cert.Convert(sources(request), str(request, "password"), str(request, "alias"), options)
+			if err != nil {
+				return nil, err
+			}
+			data := js.Global().Get("Uint8Array").New(len(file.Data))
+			js.CopyBytesToJS(data, file.Data)
+			return map[string]any{"ok": true, "status": 200, "fileName": file.FileName,
+				"contentType": file.ContentType, "data": data}, nil
+		})
+	}))
+	js.Global().Set("sslConverter", api)
+	select {}
+}
+
+// promise 는 work 를 고루틴에서 실행한다. 폐기 여부 확인처럼 fetch 를 기다리는 작업이 JS 이벤트 루프를 막지 않게 하기 위해서다.
+func promise(work func() (map[string]any, error)) js.Value {
+	var executor js.Func
+	executor = js.FuncOf(func(_ js.Value, args []js.Value) any {
+		resolve := args[0]
+		go func() {
+			result, err := func() (result map[string]any, err error) {
+				defer func() {
+					if r := recover(); r != nil {
+						err = fmt.Errorf("%v", r)
+					}
+				}()
+				return work()
+			}()
+			if err != nil {
+				result = errorResult(err)
+			}
+			resolve.Invoke(js.ValueOf(result))
+		}()
+		return nil
+	})
+	defer executor.Release()
+	return js.Global().Get("Promise").New(executor)
+}
+
+// errorResult 는 Java 판 ApiExceptionHandler 와 같은 상태 코드와 메시지를 만든다.
+func errorResult(err error) map[string]any {
+	var conversion *cert.ConversionError
+	if errors.As(err, &conversion) {
+		return map[string]any{"ok": false, "status": 400, "message": conversion.Message}
+	}
+	return map[string]any{"ok": false, "status": 500, "message": "처리 중 오류가 발생했습니다: " + err.Error()}
+}
+
+func sources(request js.Value) []cert.InputSource {
+	var result []cert.InputSource
+	files := request.Get("files")
+	for i := 0; i < files.Length(); i++ {
+		file := files.Index(i)
+		data := make([]byte, file.Get("data").Length())
+		js.CopyBytesToGo(data, file.Get("data"))
+		if len(data) > 0 {
+			result = append(result, cert.InputSource{Name: file.Get("name").String(), Data: data})
+		}
+	}
+	if text := str(request, "text"); text != "" {
+		result = append(result, cert.InputSource{Name: "붙여넣은 텍스트", Data: []byte(text)})
+	}
+	return result
+}
+
+func exportOptions(request js.Value) (cert.ExportOptions, error) {
+	options := cert.ExportOptions{
+		Formats:     map[string]bool{},
+		BaseName:    str(request, "baseName"),
+		Alias:       str(request, "outAlias"),
+		Password:    str(request, "outPassword"),
+		IncludeRoot: str(request, "includeRoot") != "false",
+		LegacyPfx:   str(request, "legacyPfx") == "true",
+		KeyFormat:   cert.KeyFormat(str(request, "keyFormat")),
+	}
+	switch options.KeyFormat {
+	case "", cert.KeyPKCS8, cert.KeyTraditional, cert.KeyPKCS8Encrypted:
+	default:
+		return options, &cert.ConversionError{Message: "알 수 없는 개인키 형식입니다: " + string(options.KeyFormat)}
+	}
+	formats := request.Get("formats")
+	for i := 0; i < formats.Length(); i++ {
+		id := formats.Index(i).String()
+		if _, ok := cert.FormatByID(id); !ok {
+			return options, &cert.ConversionError{Message: "알 수 없는 출력 형식입니다: " + id}
+		}
+		options.Formats[id] = true
+	}
+	return options, nil
+}
+
+func str(request js.Value, name string) string {
+	value := request.Get(name)
+	if value.IsUndefined() || value.IsNull() {
+		return ""
+	}
+	return value.String()
+}
+
+// fetch 는 브라우저 fetch API 로 요청한다. 고루틴에서 호출되어야 한다.
+func fetch(method, url, contentType string, body []byte) ([]byte, error) {
+	type result struct {
+		data []byte
+		err  error
+	}
+	done := make(chan result, 1)
+	options := map[string]any{"method": method, "redirect": "error"}
+	if body != nil {
+		array := js.Global().Get("Uint8Array").New(len(body))
+		js.CopyBytesToJS(array, body)
+		options["body"] = array
+		options["headers"] = map[string]any{"Content-Type": contentType}
+	}
+	var onResponse, onBody, onError js.Func
+	onError = js.FuncOf(func(_ js.Value, args []js.Value) any {
+		message := "요청 실패"
+		if len(args) > 0 && args[0].Truthy() {
+			message = args[0].Get("message").String()
+		}
+		done <- result{err: errors.New(message + " (CORS 차단 또는 네트워크 오류)")}
+		return nil
+	})
+	onBody = js.FuncOf(func(_ js.Value, args []js.Value) any {
+		array := js.Global().Get("Uint8Array").New(args[0])
+		data := make([]byte, array.Length())
+		js.CopyBytesToGo(data, array)
+		done <- result{data: data}
+		return nil
+	})
+	onResponse = js.FuncOf(func(_ js.Value, args []js.Value) any {
+		response := args[0]
+		if !response.Get("ok").Bool() {
+			done <- result{err: fmt.Errorf("HTTP %d", response.Get("status").Int())}
+			return nil
+		}
+		response.Call("arrayBuffer").Call("then", onBody).Call("catch", onError)
+		return nil
+	})
+	defer onResponse.Release()
+	defer onBody.Release()
+	defer onError.Release()
+	js.Global().Call("fetch", url, options).Call("then", onResponse).Call("catch", onError)
+	select {
+	case r := <-done:
+		return r.data, r.err
+	case <-time.After(15 * time.Second):
+		return nil, errors.New("시간 초과")
+	}
+}

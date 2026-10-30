@@ -16,6 +16,8 @@ java -jar target/ssl-converter-0.0.1-SNAPSHOT.jar
 
 > 개인키를 업로드하는 도구이므로 내부망이나 로컬에서만 실행하세요.
 > 외부에 노출해야 한다면 HTTPS를 적용하고 접근을 제한하세요.
+>
+> 서버 없이 브라우저 안에서만 변환하는 WebAssembly 판도 있습니다. [wasm/README.md](wasm/README.md)를 참고하세요.
 
 ### Docker
 
