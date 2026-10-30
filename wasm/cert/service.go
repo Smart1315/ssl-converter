@@ -124,7 +124,8 @@ func withDefaults(options ExportOptions, bundle *CertBundle) (ExportOptions, err
 	for _, format := range OutputFormats {
 		needsPassword = needsPassword || (options.Formats[format.ID] && format.RequiresPassword)
 	}
-	if needsPassword && options.Password == "" {
+	// 공백만 입력한 비밀번호는 화면에서 빈 칸처럼 보이므로 입력하지 않은 것으로 본다 (앞뒤 공백은 그대로 사용)
+	if needsPassword && strings.TrimSpace(options.Password) == "" {
 		return options, conversionError(nil, "PFX/JKS/암호화 키를 만들려면 '출력 비밀번호'를 입력하세요.")
 	}
 	return options, nil

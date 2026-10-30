@@ -331,9 +331,32 @@ func TestMismatchedAndMissingKeys(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "개인키가 없어") {
 		t.Errorf("키 없는 KEY_PEM: %v", err)
 	}
-	_, err = Convert([]InputSource{text("c.pem", pemOf(t, c.leaf))}, "", "", options("", FormatPfx))
-	if err == nil || !strings.Contains(err.Error(), "출력 비밀번호") {
-		t.Errorf("비밀번호 없는 PFX: %v", err)
+}
+
+func TestKeystoreOutputRequiresPassword(t *testing.T) {
+	c := newTestChain(t, false, "example.com")
+	sources := []InputSource{text("all.pem", pemOf(t, c.leaf, c.intermediate, c.leafKey))}
+	for _, password := range []string{"", "   ", "\t"} {
+		for _, format := range []OutputFormat{FormatPfx, FormatJks, FormatTruststoreJks} {
+			_, err := Convert(sources, "", "", options(password, format))
+			if err == nil || !strings.Contains(err.Error(), "출력 비밀번호") {
+				t.Errorf("%s 비밀번호 %q: %v", format.ID, password, err)
+			}
+		}
+		encryptedKey := options(password, FormatKeyPem)
+		encryptedKey.KeyFormat = KeyPKCS8Encrypted
+		if _, err := Convert(sources, "", "", encryptedKey); err == nil || !strings.Contains(err.Error(), "출력 비밀번호") {
+			t.Errorf("암호화 키 비밀번호 %q: %v", password, err)
+		}
+	}
+	// 앞뒤 공백이 있는 비밀번호는 그대로 사용한다
+	file, err := Convert(sources, "", "", options(" change it ", FormatPfx))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if analysis := Analyze([]InputSource{{Name: file.FileName, Data: file.Data}}, " change it ", ""); analysis.Bundle == nil ||
+		analysis.Bundle.PrivateKey == nil {
+		t.Errorf("앞뒤 공백 비밀번호로 열기 실패: %v", analysis.Errors)
 	}
 }
 

@@ -277,7 +277,7 @@ function updateDownloadInfo() {
 	const needPw = sel.some((id) => FORMATS.find((f) => f.id === id).pw)
 		|| ($('keyFormat').value === 'PKCS8_ENCRYPTED' && (sel.includes('KEY_PEM') || sel.includes('COMBINED_PEM')));
 	$('pwHint').textContent = needPw ? '필수 · JKS 는 6자 이상 권장' : 'PFX/JKS/암호화 키에 사용';
-	$('pwHint').style.color = needPw && !$('outPassword').value ? 'var(--err)' : '';
+	$('pwHint').style.color = needPw && !$('outPassword').value.trim() ? 'var(--err)' : '';
 	$('downloadInfo').textContent = sel.length === 0 ? '형식을 선택하세요'
 		: sel.length === 1 ? '파일 1개 다운로드' : `${sel.length}개 파일을 ZIP 으로 다운로드`;
 	$('downloadBtn').disabled = sel.length === 0;

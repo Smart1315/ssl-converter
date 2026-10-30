@@ -207,12 +207,30 @@ class ConverterServiceTests {
 	}
 
 	@Test
-	void keystoreOutputRequiresPassword() {
-		List<InputSource> sources = List.of(source("ssl.crt", "x"));
-		ExportOptions noPassword = new ExportOptions(EnumSet.of(OutputFormat.JKS), null, null, null, true, false,
-				ExportOptions.KeyFormat.PKCS8);
-		assertThatThrownBy(() -> this.service.convert(sources, null, null, noPassword))
-			.isInstanceOf(ConversionException.class);
+	void keystoreOutputRequiresPassword() throws Exception {
+		List<InputSource> sources = List.of(
+				source("ssl.pem", TestCertificates.pem(rsa.leaf, rsa.intermediate, rsa.leafKey.getPrivate())));
+		for (char[] password : new char[][] { null, new char[0], "   ".toCharArray() }) {
+			for (OutputFormat format : List.of(OutputFormat.PFX, OutputFormat.JKS, OutputFormat.TRUSTSTORE_JKS)) {
+				ExportOptions options = new ExportOptions(EnumSet.of(format), null, null, password, true, false,
+						ExportOptions.KeyFormat.PKCS8);
+				assertThatThrownBy(() -> this.service.convert(sources, null, null, options))
+					.isInstanceOf(ConversionException.class)
+					.hasMessageContaining("출력 비밀번호");
+			}
+			ExportOptions encryptedKey = new ExportOptions(EnumSet.of(OutputFormat.KEY_PEM), null, null, password, true,
+					false, ExportOptions.KeyFormat.PKCS8_ENCRYPTED);
+			assertThatThrownBy(() -> this.service.convert(sources, null, null, encryptedKey))
+				.hasMessageContaining("출력 비밀번호");
+		}
+		// 앞뒤 공백이 있는 비밀번호는 그대로 사용한다
+		char[] padded = " change it ".toCharArray();
+		byte[] pfx = convert(sources, new ExportOptions(EnumSet.of(OutputFormat.PFX), null, null, padded, true, false,
+				ExportOptions.KeyFormat.PKCS8))
+			.data();
+		KeyStore keyStore = KeyStore.getInstance("PKCS12");
+		keyStore.load(new ByteArrayInputStream(pfx), padded);
+		assertThat(keyStore.isKeyEntry("example.com")).isTrue();
 	}
 
 	private ExportedFile convert(List<InputSource> sources, ExportOptions options) {
