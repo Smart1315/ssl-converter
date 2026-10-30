@@ -23,6 +23,9 @@ public class ConverterService {
 	static final String NO_KEY_WARNING = "개인키가 입력되지 않았습니다. 서버에 설치할 .key/PFX/JKS 를 만들려면 개인키 파일을 추가하거나 "
 			+ "-----BEGIN PRIVATE KEY----- 블록을 함께 붙여넣으세요. (개인키 없이 만든 PFX/JKS 에는 인증서만 들어갑니다)";
 
+	static final String NON_ASCII_PASSWORD = "출력 비밀번호에는 영문, 숫자, 기호(ASCII)만 사용할 수 있습니다. "
+			+ "한글 등이 들어간 비밀번호로 만든 PFX 는 Java(keytool, Tomcat 등)에서 열 수 없습니다.";
+
 	private final InputParser parser;
 
 	private final ChainResolver resolver;
@@ -104,18 +107,35 @@ public class ConverterService {
 		String alias = (options.alias() == null || options.alias().isBlank()) ? suggestedAlias(bundle.leaf())
 				: options.alias().trim();
 		char[] password = (options.password() != null) ? options.password() : new char[0];
+		// PKCS8_ENCRYPTED 는 이전 API 호환용: PKCS8 + 암호화로 바꾼다
+		ExportOptions.KeyFormat keyFormat = (options.keyFormat() != null) ? options.keyFormat()
+				: ExportOptions.KeyFormat.PKCS8;
+		boolean encryptKey = options.encryptKey() || keyFormat == ExportOptions.KeyFormat.PKCS8_ENCRYPTED;
+		if (keyFormat == ExportOptions.KeyFormat.PKCS8_ENCRYPTED) {
+			keyFormat = ExportOptions.KeyFormat.PKCS8;
+		}
 		boolean needsPassword = options.formats().stream().anyMatch(OutputFormat::requiresPassword)
-				|| (options.keyFormat() == ExportOptions.KeyFormat.PKCS8_ENCRYPTED
-						&& (options.formats().contains(OutputFormat.KEY_PEM)
-								|| options.formats().contains(OutputFormat.COMBINED_PEM)));
+				|| (encryptKey && (options.formats().contains(OutputFormat.KEY_PEM)
+						|| options.formats().contains(OutputFormat.COMBINED_PEM)));
 		// 공백만 입력한 비밀번호는 화면에서 빈 칸처럼 보이므로 입력하지 않은 것으로 본다 (앞뒤 공백은 그대로 사용)
 		if (needsPassword && new String(password).isBlank()) {
 			throw new ConversionException("PFX/JKS/암호화 키를 만들려면 '출력 비밀번호'를 입력하세요.");
 		}
-		ExportOptions.KeyFormat keyFormat = (options.keyFormat() != null) ? options.keyFormat()
-				: ExportOptions.KeyFormat.PKCS8;
+		// JDK(keytool, Tomcat, Spring Boot)의 PKCS12 는 ASCII 가 아닌 비밀번호를 거부하므로, 열 수 없는 파일이 만들어지지 않게 막는다
+		if (needsPassword && !isPrintableAscii(password)) {
+			throw new ConversionException(NON_ASCII_PASSWORD);
+		}
 		return new ExportOptions(options.formats(), baseName, alias, password, options.includeRoot(),
-				options.legacyPfx(), keyFormat);
+				options.legacyPfx(), keyFormat, encryptKey);
+	}
+
+	private static boolean isPrintableAscii(char[] password) {
+		for (char c : password) {
+			if (c < 0x20 || c > 0x7E) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private byte[] zip(ExportResult result, CertBundle bundle, ExportOptions options) {
@@ -142,6 +162,7 @@ public class ConverterService {
 		text.append("별칭(alias): ").append(options.alias()).append("\r\n");
 		text.append("루트 인증서 포함: ").append(options.includeRoot() ? "예" : "아니오").append("\r\n");
 		text.append("PFX 암호화: ").append(options.legacyPfx() ? "레거시(3DES/SHA1)" : "기본(AES-256/SHA-256)").append("\r\n");
+		text.append("개인키 파일 암호화: ").append(options.encryptKey() ? "예 (출력 비밀번호)" : "아니오").append("\r\n");
 		text.append("※ 비밀번호는 이 파일에 기록하지 않습니다.\r\n");
 		if (!bundle.hasPrivateKey()) {
 			text.append("※ 개인키 없음: PFX/JKS 에는 인증서만 들어 있어 서버 인증서로 사용할 수 없습니다.\r\n");

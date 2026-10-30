@@ -57,10 +57,11 @@ public class ConverterController {
 			@RequestParam(name = "outPassword", required = false) String outPassword,
 			@RequestParam(name = "includeRoot", defaultValue = "true") boolean includeRoot,
 			@RequestParam(name = "legacyPfx", defaultValue = "false") boolean legacyPfx,
-			@RequestParam(name = "keyFormat", defaultValue = "PKCS8") ExportOptions.KeyFormat keyFormat)
+			@RequestParam(name = "keyFormat", defaultValue = "PKCS8") ExportOptions.KeyFormat keyFormat,
+			@RequestParam(name = "encryptKey", defaultValue = "false") boolean encryptKey)
 			throws IOException {
 		ExportOptions options = new ExportOptions(parseFormats(formats), baseName, outAlias, chars(outPassword),
-				includeRoot, legacyPfx, keyFormat);
+				includeRoot, legacyPfx, keyFormat, encryptKey);
 		ExportedFile file = this.service.convert(sources(files, text), chars(password), blankToNull(alias), options)
 			.file();
 		return ResponseEntity.ok()

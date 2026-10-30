@@ -12,6 +12,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -399,5 +400,65 @@ func TestSerialHexMatchesJava(t *testing.T) {
 		if got := serialHex(big.NewInt(value)); got != want {
 			t.Errorf("serialHex(%d) = %s, 기대 %s", value, got, want)
 		}
+	}
+}
+
+func TestNonASCIIOutputPasswordIsRejected(t *testing.T) {
+	c := newTestChain(t, false, "example.com")
+	sources := []InputSource{text("all.pem", pemOf(t, c.leaf, c.intermediate, c.leafKey))}
+	for _, password := range []string{"비밀번호123", "pässword", "pass\tword"} {
+		for _, format := range []OutputFormat{FormatPfx, FormatJks, FormatTruststoreJks} {
+			if _, err := Convert(sources, "", "", options(password, format)); err == nil || err.Error() != nonASCIIPassword {
+				t.Errorf("%s 비밀번호 %q: %v", format.ID, password, err)
+			}
+		}
+	}
+	// 비밀번호가 필요 없는 형식에서는 검사하지 않는다
+	if _, err := Convert(sources, "", "", options("비밀번호", FormatFullchainPem)); err != nil {
+		t.Errorf("PEM 출력: %v", err)
+	}
+}
+
+func TestKeyEncryptionIsSelectableForEachKeyFormat(t *testing.T) {
+	for _, ec := range []bool{false, true} {
+		c := newTestChain(t, ec, "example.com")
+		for _, format := range []KeyFormat{KeyPKCS8, KeyTraditional} {
+			for _, encrypt := range []bool{false, true} {
+				opts := options("changeit", FormatKeyPem)
+				opts.KeyFormat, opts.EncryptKey = format, encrypt
+				file, err := Convert([]InputSource{text("c.pem", pemOf(t, c.leaf)), text("k.pem", pemOf(t, c.leafKey))}, "", "", opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				key := string(file.Data)
+				label := fmt.Sprintf("EC=%v %s encrypt=%v", ec, format, encrypt)
+				if strings.Contains(key, "ENCRYPTED") != encrypt {
+					t.Errorf("%s: 암호화 여부가 다릅니다\n%s", label, key[:80])
+				}
+				pkcs8 := strings.HasPrefix(key, "-----BEGIN PRIVATE KEY-----") || strings.HasPrefix(key, "-----BEGIN ENCRYPTED PRIVATE KEY-----")
+				if pkcs8 != (format == KeyPKCS8) {
+					t.Errorf("%s: 형식이 다릅니다\n%s", label, key[:80])
+				}
+				reloaded := []InputSource{text("c.pem", pemOf(t, c.leaf)), {Name: "out.key", Data: file.Data}}
+				password := ""
+				if encrypt {
+					password = "changeit"
+					if a := Analyze(reloaded, "", ""); len(a.Errors) == 0 {
+						t.Errorf("%s: 비밀번호 없이 열렸습니다", label)
+					}
+				}
+				if a := Analyze(reloaded, password, ""); a.Bundle == nil || a.Bundle.PrivateKey == nil {
+					t.Errorf("%s: 다시 읽기 실패 %v", label, a.Errors)
+				}
+			}
+		}
+	}
+	// 이전 API 의 PKCS8_ENCRYPTED 는 PKCS8 + 암호화와 같다
+	c := newTestChain(t, false, "example.com")
+	opts := options("changeit", FormatKeyPem)
+	opts.KeyFormat = KeyPKCS8Encrypted
+	file, err := Convert([]InputSource{text("all.pem", pemOf(t, c.leaf, c.leafKey))}, "", "", opts)
+	if err != nil || !strings.HasPrefix(string(file.Data), "-----BEGIN ENCRYPTED PRIVATE KEY-----") {
+		t.Errorf("PKCS8_ENCRYPTED: %v", err)
 	}
 }

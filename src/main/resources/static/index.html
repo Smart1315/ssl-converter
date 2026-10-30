@@ -91,11 +91,11 @@
 				<select id="keyFormat">
 					<option value="PKCS8">PKCS#8 (BEGIN PRIVATE KEY) — 권장</option>
 					<option value="TRADITIONAL">전통 형식 (BEGIN RSA/EC PRIVATE KEY)</option>
-					<option value="PKCS8_ENCRYPTED">암호화 PKCS#8 (출력 비밀번호 사용)</option>
 				</select>
 			</label>
 		</div>
 		<div class="checks">
+			<label><input id="encryptKey" type="checkbox"> 개인키 파일 암호화 <small>출력 비밀번호로 .key · 통합 PEM 을 암호화합니다. Nginx/Apache 는 시작할 때마다 비밀번호를 물어봅니다</small></label>
 			<label><input id="includeRoot" type="checkbox" checked> 루트 인증서 포함 <small>(입력에 있는 경우)</small></label>
 			<label><input id="legacyPfx" type="checkbox"> PFX 레거시 암호화 (3DES/SHA1) <small>Windows Server 2016 이하 · 구형 Java 에서 가져오기 실패 시</small></label>
 		</div>

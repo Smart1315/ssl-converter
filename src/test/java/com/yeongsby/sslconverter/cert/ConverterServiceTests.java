@@ -159,6 +159,38 @@ class ConverterServiceTests {
 	}
 
 	@Test
+	void keyEncryptionIsSelectableForEachKeyFormat() throws Exception {
+		TestCertificates ec = TestCertificates.ec();
+		for (TestCertificates certificates : List.of(rsa, ec)) {
+			List<InputSource> sources = List.of(source("ssl.crt", TestCertificates.pem(certificates.leaf)), source(
+					"ssl.key", TestCertificates.pem(new JcaPKCS8Generator(certificates.leafKey.getPrivate(), null))));
+			for (ExportOptions.KeyFormat format : List.of(ExportOptions.KeyFormat.PKCS8,
+					ExportOptions.KeyFormat.TRADITIONAL)) {
+				for (boolean encrypt : new boolean[] { false, true }) {
+					ExportOptions options = new ExportOptions(EnumSet.of(OutputFormat.KEY_PEM), null, null, PASSWORD,
+							true, false, format, encrypt);
+					String key = new String(convert(sources, options).data(), StandardCharsets.US_ASCII);
+					String label = certificates.leafKey.getPrivate().getAlgorithm() + " " + format + " encrypt=" + encrypt;
+					assertThat(key.contains("ENCRYPTED")).as(label).isEqualTo(encrypt);
+					assertThat(key.startsWith("-----BEGIN PRIVATE KEY-----")
+							|| key.startsWith("-----BEGIN ENCRYPTED PRIVATE KEY-----"))
+						.as(label)
+						.isEqualTo(format == ExportOptions.KeyFormat.PKCS8);
+
+					List<InputSource> reloaded = List.of(source("ssl.crt", TestCertificates.pem(certificates.leaf)),
+							source("out.key", key));
+					assertThat(this.service.analyze(reloaded, encrypt ? PASSWORD : null, null).bundle().privateKey())
+						.as(label)
+						.isNotNull();
+					if (encrypt) {
+						assertThat(this.service.analyze(reloaded, null, null).errors()).as(label).isNotEmpty();
+					}
+				}
+			}
+		}
+	}
+
+	@Test
 	void ecKeyAndWildcardCertificate() throws Exception {
 		TestCertificates ec = TestCertificates.ec();
 		List<InputSource> sources = List.of(
@@ -231,6 +263,24 @@ class ConverterServiceTests {
 		KeyStore keyStore = KeyStore.getInstance("PKCS12");
 		keyStore.load(new ByteArrayInputStream(pfx), padded);
 		assertThat(keyStore.isKeyEntry("example.com")).isTrue();
+	}
+
+	@Test
+	void nonAsciiOutputPasswordIsRejected() throws Exception {
+		List<InputSource> sources = List.of(
+				source("ssl.pem", TestCertificates.pem(rsa.leaf, rsa.intermediate, rsa.leafKey.getPrivate())));
+		for (String password : List.of("비밀번호123", "pässword", "pass\tword")) {
+			for (OutputFormat format : List.of(OutputFormat.PFX, OutputFormat.JKS, OutputFormat.TRUSTSTORE_JKS)) {
+				ExportOptions options = new ExportOptions(EnumSet.of(format), null, null, password.toCharArray(), true,
+						false, ExportOptions.KeyFormat.PKCS8);
+				assertThatThrownBy(() -> this.service.convert(sources, null, null, options))
+					.hasMessage(ConverterService.NON_ASCII_PASSWORD);
+			}
+		}
+		// 비밀번호가 필요 없는 형식에서는 검사하지 않는다
+		ExportOptions pemOnly = new ExportOptions(EnumSet.of(OutputFormat.FULLCHAIN_PEM), null, null,
+				"비밀번호".toCharArray(), true, false, ExportOptions.KeyFormat.PKCS8);
+		assertThat(this.service.convert(sources, null, null, pemOnly).file().data()).isNotEmpty();
 	}
 
 	private ExportedFile convert(List<InputSource> sources, ExportOptions options) {

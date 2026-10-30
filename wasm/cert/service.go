@@ -14,6 +14,9 @@ import (
 const noKeyWarning = "개인키가 입력되지 않았습니다. 서버에 설치할 .key/PFX/JKS 를 만들려면 개인키 파일을 추가하거나 " +
 	"-----BEGIN PRIVATE KEY----- 블록을 함께 붙여넣으세요. (개인키 없이 만든 PFX/JKS 에는 인증서만 들어갑니다)"
 
+const nonASCIIPassword = "출력 비밀번호에는 영문, 숫자, 기호(ASCII)만 사용할 수 있습니다. " +
+	"한글 등이 들어간 비밀번호로 만든 PFX 는 Java(keytool, Tomcat 등)에서 열 수 없습니다."
+
 // Analysis 는 분석 결과 (웹 화면 표시용).
 type Analysis struct {
 	Sources           []SourceSummary `json:"sources"`
@@ -116,11 +119,14 @@ func withDefaults(options ExportOptions, bundle *CertBundle) (ExportOptions, err
 	if options.Alias = strings.TrimSpace(options.Alias); options.Alias == "" {
 		options.Alias = suggestedAlias(bundle.Leaf)
 	}
-	if options.KeyFormat == "" {
+	// PKCS8_ENCRYPTED 는 이전 API 호환용: PKCS8 + 암호화로 바꾼다
+	switch options.KeyFormat {
+	case "":
 		options.KeyFormat = KeyPKCS8
+	case KeyPKCS8Encrypted:
+		options.KeyFormat, options.EncryptKey = KeyPKCS8, true
 	}
-	needsPassword := options.KeyFormat == KeyPKCS8Encrypted &&
-		(options.Formats[FormatKeyPem.ID] || options.Formats[FormatCombinedPem.ID])
+	needsPassword := options.EncryptKey && (options.Formats[FormatKeyPem.ID] || options.Formats[FormatCombinedPem.ID])
 	for _, format := range OutputFormats {
 		needsPassword = needsPassword || (options.Formats[format.ID] && format.RequiresPassword)
 	}
@@ -128,7 +134,20 @@ func withDefaults(options ExportOptions, bundle *CertBundle) (ExportOptions, err
 	if needsPassword && strings.TrimSpace(options.Password) == "" {
 		return options, conversionError(nil, "PFX/JKS/암호화 키를 만들려면 '출력 비밀번호'를 입력하세요.")
 	}
+	// JDK(keytool, Tomcat, Spring Boot)의 PKCS12 는 ASCII 가 아닌 비밀번호를 거부하므로, 열 수 없는 파일이 만들어지지 않게 막는다
+	if needsPassword && !isPrintableASCII(options.Password) {
+		return options, conversionError(nil, nonASCIIPassword)
+	}
 	return options, nil
+}
+
+func isPrintableASCII(text string) bool {
+	for _, r := range text {
+		if r < 0x20 || r > 0x7E {
+			return false
+		}
+	}
+	return true
 }
 
 func zipFiles(files []ExportedFile, skipped []string, bundle *CertBundle, options ExportOptions) ([]byte, error) {
@@ -167,6 +186,7 @@ func summary(files []ExportedFile, skipped []string, bundle *CertBundle, options
 	line("별칭(alias): %s", options.Alias)
 	line("루트 인증서 포함: %s", yesNo[options.IncludeRoot])
 	line("PFX 암호화: %s", pfxMode[options.LegacyPfx])
+	line("개인키 파일 암호화: %s", map[bool]string{true: "예 (출력 비밀번호)", false: "아니오"}[options.EncryptKey])
 	line("※ 비밀번호는 이 파일에 기록하지 않습니다.")
 	if !bundle.HasPrivateKey() {
 		line("※ 개인키 없음: PFX/JKS 에는 인증서만 들어 있어 서버 인증서로 사용할 수 없습니다.")

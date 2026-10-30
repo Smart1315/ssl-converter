@@ -129,9 +129,9 @@ func (b *CertBundle) FullChain(includeRoot bool) []*x509.Certificate {
 type KeyFormat string
 
 const (
-	KeyPKCS8          KeyFormat = "PKCS8"           // -----BEGIN PRIVATE KEY-----
-	KeyTraditional    KeyFormat = "TRADITIONAL"     // -----BEGIN RSA PRIVATE KEY----- / EC PRIVATE KEY
-	KeyPKCS8Encrypted KeyFormat = "PKCS8_ENCRYPTED" // -----BEGIN ENCRYPTED PRIVATE KEY----- (AES-256)
+	KeyPKCS8          KeyFormat = "PKCS8"           // -----BEGIN PRIVATE KEY----- (암호화 시 ENCRYPTED PRIVATE KEY, AES-256)
+	KeyTraditional    KeyFormat = "TRADITIONAL"     // -----BEGIN RSA/EC PRIVATE KEY----- (암호화 시 DEK-Info AES-256-CBC)
+	KeyPKCS8Encrypted KeyFormat = "PKCS8_ENCRYPTED" // PKCS8 + 암호화. 이전 API 호환용이며 EncryptKey=true 와 같다
 )
 
 // ExportOptions 는 출력 옵션.
@@ -143,6 +143,7 @@ type ExportOptions struct {
 	IncludeRoot bool
 	LegacyPfx   bool // PFX 를 3DES/SHA1 로 암호화 (Windows Server 2016 이하, 구형 Java 호환)
 	KeyFormat   KeyFormat
+	EncryptKey  bool // 개인키 PEM(.key, 통합 PEM)을 출력 비밀번호로 암호화
 }
 
 // OutputFormat 은 생성 가능한 출력 형식. FilePattern 의 %s 는 기본 파일명으로 치환된다.

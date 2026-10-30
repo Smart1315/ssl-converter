@@ -3,6 +3,7 @@ package cert
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
@@ -85,8 +86,7 @@ func privateKeyPem(bundle *CertBundle, options ExportOptions) ([]byte, error) {
 		return nil, err
 	}
 	block := &pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8}
-	switch options.KeyFormat {
-	case KeyTraditional:
+	if options.KeyFormat == KeyTraditional {
 		// 전통(OpenSSL) 형식이 없는 키(Ed25519 등)는 PKCS#8 로 쓴다
 		switch key := bundle.PrivateKey.(type) {
 		case *rsa.PrivateKey:
@@ -98,12 +98,23 @@ func privateKeyPem(bundle *CertBundle, options ExportOptions) ([]byte, error) {
 			}
 			block = &pem.Block{Type: "EC PRIVATE KEY", Bytes: sec1}
 		}
-	case KeyPKCS8Encrypted:
-		encrypted, err := encryptPkcs8(pkcs8, options.Password, pbes2Encrypt, pkcs8EncryptionIterations)
+	}
+	if !options.EncryptKey {
+		return pem.EncodeToMemory(block), nil
+	}
+	if block.Type != "PRIVATE KEY" {
+		// `openssl rsa -aes256` 과 같은 구형 OpenSSL 암호화 (Proc-Type/DEK-Info 헤더)
+		//nolint:staticcheck // Apache 등 전통 형식이 필요한 서버를 위해 구형 방식을 그대로 쓴다
+		encrypted, err := x509.EncryptPEMBlock(rand.Reader, block.Type, block.Bytes, []byte(options.Password),
+			x509.PEMCipherAES256)
 		if err != nil {
 			return nil, err
 		}
-		block = &pem.Block{Type: "ENCRYPTED PRIVATE KEY", Bytes: encrypted}
+		return pem.EncodeToMemory(encrypted), nil
 	}
-	return pem.EncodeToMemory(block), nil
+	encrypted, err := encryptPkcs8(pkcs8, options.Password, pbes2Encrypt, pkcs8EncryptionIterations)
+	if err != nil {
+		return nil, err
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "ENCRYPTED PRIVATE KEY", Bytes: encrypted}), nil
 }

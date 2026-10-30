@@ -9,11 +9,13 @@ import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.Certificate;
 import java.security.interfaces.ECPrivateKey;
+import java.security.interfaces.RSAPrivateKey;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 import org.bouncycastle.asn1.ASN1BitString;
@@ -24,10 +26,13 @@ import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.asn1.x509.SubjectKeyIdentifier;
 import org.bouncycastle.cert.jcajce.JcaX509ExtensionUtils;
+import org.bouncycastle.openssl.PEMEncryptor;
 import org.bouncycastle.openssl.PKCS8Generator;
+import org.bouncycastle.openssl.jcajce.JcaMiscPEMGenerator;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.openssl.jcajce.JcaPKCS8Generator;
 import org.bouncycastle.openssl.jcajce.JceOpenSSLPKCS8EncryptorBuilder;
+import org.bouncycastle.openssl.jcajce.JcePEMEncryptorBuilder;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.OutputEncryptor;
 import org.bouncycastle.pkcs.PKCS12PfxPduBuilder;
@@ -37,6 +42,8 @@ import org.bouncycastle.pkcs.PKCSException;
 import org.bouncycastle.pkcs.bc.BcPKCS12MacCalculatorBuilder;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS12SafeBagBuilder;
 import org.bouncycastle.pkcs.jcajce.JcePKCSPBEOutputEncryptorBuilder;
+import org.bouncycastle.util.encoders.Hex;
+import org.bouncycastle.util.io.pem.PemHeader;
 import org.bouncycastle.util.io.pem.PemObject;
 import org.bouncycastle.util.io.pem.PemObjectGenerator;
 import org.springframework.stereotype.Component;
@@ -122,19 +129,31 @@ public class Exporter {
 
 	private byte[] privateKeyPem(CertBundle bundle, ExportOptions options)
 			throws IOException, OperatorCreationException {
-		return switch (options.keyFormat()) {
-			case PKCS8 -> pem(List.of(new JcaPKCS8Generator(bundle.privateKey(), null)));
-			case TRADITIONAL -> pem(List.of(traditional(bundle.privateKey())));
-			case PKCS8_ENCRYPTED -> {
-				OutputEncryptor encryptor = new JceOpenSSLPKCS8EncryptorBuilder(PKCS8Generator.AES_256_CBC)
-					.setProvider(BouncyCastleSupport.PROVIDER)
-					.setPRF(PKCS8Generator.PRF_HMACSHA256)
-					.setIterationCount(100_000)
-					.setPassword(options.password())
-					.build();
-				yield pem(List.of(new JcaPKCS8Generator(bundle.privateKey(), encryptor)));
-			}
-		};
+		PrivateKey key = bundle.privateKey();
+		// 전통 형식이 없는 키(Ed25519 등)는 PKCS#8 로 쓴다
+		boolean traditional = options.keyFormat() == ExportOptions.KeyFormat.TRADITIONAL
+				&& (key instanceof RSAPrivateKey || key instanceof ECPrivateKey);
+		if (!options.encryptKey()) {
+			return pem(List.of(traditional ? traditional(key) : new JcaPKCS8Generator(key, null)));
+		}
+		if (traditional) {
+			// `openssl rsa -aes256` 과 같은 구형 OpenSSL 암호화 (Proc-Type/DEK-Info 헤더)
+			PEMEncryptor encryptor = new JcePEMEncryptorBuilder("AES-256-CBC").setProvider(BouncyCastleSupport.PROVIDER)
+				.build(options.password());
+			// EC 키는 traditional() 이 직접 만든 PemObject 라 MiscPEMGenerator 가 암호화하지 않으므로 직접 암호화한다
+			PemObject plain = (traditional(key) instanceof PemObject object) ? object
+					: new JcaMiscPEMGenerator(key).generate();
+			List<PemHeader> headers = List.of(new PemHeader("Proc-Type", "4,ENCRYPTED"), new PemHeader("DEK-Info",
+					encryptor.getAlgorithm() + "," + Hex.toHexString(encryptor.getIV()).toUpperCase(Locale.ROOT)));
+			return pem(List.of(new PemObject(plain.getType(), headers, encryptor.encrypt(plain.getContent()))));
+		}
+		OutputEncryptor encryptor = new JceOpenSSLPKCS8EncryptorBuilder(PKCS8Generator.AES_256_CBC)
+			.setProvider(BouncyCastleSupport.PROVIDER)
+			.setPRF(PKCS8Generator.PRF_HMACSHA256)
+			.setIterationCount(100_000)
+			.setPassword(options.password())
+			.build();
+		return pem(List.of(new JcaPKCS8Generator(key, encryptor)));
 	}
 
 	/**
