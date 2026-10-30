@@ -1,0 +1,20 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="WASM 엔진 go build" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="ssl-converter" />
+    <working_directory value="$PROJECT_DIR$/wasm" />
+    <go_parameters value="-o ../../dist/sslconverter.wasm -trimpath -ldflags=&quot;-s -w&quot;" />
+    <envs>
+      <env name="GOOS" value="js" />
+      <env name="GOARCH" value="wasm" />
+    </envs>
+    <kind value="PACKAGE" />
+    <package value="sslconverter/cmd/wasm" />
+    <directory value="$PROJECT_DIR$/wasm" />
+    <filePath value="$PROJECT_DIR$/wasm/cmd/wasm/main.go" />
+    <output_directory value="$PROJECT_DIR$/wasm/dist" />
+    <option name="run" value="false" />
+    <method v="2">
+      <option name="RunConfigurationTask" enabled="true" run_configuration_name="WASM 화면 파일" run_configuration_type="ShConfigurationType" />
+    </method>
+  </configuration>
+</component>

@@ -1,6 +1,8 @@
 ﻿# 브라우저 전용(WebAssembly) 판을 dist\ 에 만든다. 화면은 Spring 판(src\main\resources\static)을 그대로 쓴다.
 #   .\build.ps1
 #   python -m http.server -d dist 8000   →  http://localhost:8000
+#   .\build.ps1 -AssetsOnly              → go build 없이 화면 파일만 dist\ 에 복사 (IDE 의 Go Build 구성 앞 단계용)
+param([switch]$AssetsOnly)
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
@@ -14,15 +16,19 @@ if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
 }
 
 $static = '..\src\main\resources\static'
-if (Test-Path dist) { Remove-Item -Recurse -Force dist }
-New-Item -ItemType Directory dist | Out-Null
+if ($AssetsOnly) {
+	New-Item -ItemType Directory -Force dist | Out-Null
+} else {
+	if (Test-Path dist) { Remove-Item -Recurse -Force dist }
+	New-Item -ItemType Directory dist | Out-Null
 
-$env:GOOS = 'js'; $env:GOARCH = 'wasm'
-try {
-	go build -trimpath -ldflags='-s -w' -o dist\sslconverter.wasm .\cmd\wasm
-	if ($LASTEXITCODE -ne 0) { throw 'go build 실패' }
-} finally {
-	Remove-Item Env:GOOS, Env:GOARCH
+	$env:GOOS = 'js'; $env:GOARCH = 'wasm'
+	try {
+		go build -trimpath -ldflags='-s -w' -o dist\sslconverter.wasm .\cmd\wasm
+		if ($LASTEXITCODE -ne 0) { throw 'go build 실패' }
+	} finally {
+		Remove-Item Env:GOOS, Env:GOARCH
+	}
 }
 Copy-Item (Join-Path (go env GOROOT) 'lib\wasm\wasm_exec.js') dist
 Copy-Item web\bridge.js, web\worker.js, "$static\app.js", "$static\style.css" dist
