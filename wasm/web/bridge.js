@@ -1,6 +1,13 @@
 // 브라우저 전용(WebAssembly) 판에서 app.js 의 서버 API 호출을 대신한다.
 // app.js 는 window.sslApiFetch 가 있으면 fetch 대신 사용하며, 이 함수는 서버 API 와 같은 fetch Response 를 돌려준다.
 (() => {
+	// 폐기 여부(OCSP/CRL) 확인은 CA 서버가 CORS 를 허용하지 않아 브라우저에서 할 수 없으므로 옵션을 숨긴다
+	const revocation = document.getElementById('checkRevocation');
+	if (revocation) {
+		revocation.checked = false;
+		revocation.closest('label').hidden = true;
+	}
+
 	const worker = new Worker('worker.js');
 	const pending = new Map();
 	let sequence = 0;

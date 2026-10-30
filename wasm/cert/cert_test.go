@@ -119,7 +119,7 @@ func options(password string, formats ...OutputFormat) ExportOptions {
 // convertBack 은 변환 결과를 다시 읽어 분석한다.
 func convertBack(t *testing.T, file ExportedFile, password string) Analysis {
 	t.Helper()
-	analysis := Analyze([]InputSource{{Name: file.FileName, Data: file.Data}}, password, "", false)
+	analysis := Analyze([]InputSource{{Name: file.FileName, Data: file.Data}}, password, "")
 	if len(analysis.Errors) > 0 {
 		t.Fatalf("%s 다시 읽기 실패: %v", file.FileName, analysis.Errors)
 	}
@@ -132,7 +132,7 @@ func TestJoinedPemBoundariesAndShuffledChainAreFixed(t *testing.T) {
 	joined := strings.ReplaceAll(pemOf(t, c.root, c.leaf, c.intermediate), "-----\n-----BEGIN", "----------BEGIN")
 	input := "Bag Attributes\r\n" + strings.ReplaceAll(joined, "\n", "\r\n") + pemOf(t, c.leafKey)
 
-	analysis := Analyze([]InputSource{text("bundle.pem", input)}, "", "", false)
+	analysis := Analyze([]InputSource{text("bundle.pem", input)}, "", "")
 	if len(analysis.Errors) > 0 {
 		t.Fatal(analysis.Errors)
 	}
@@ -158,8 +158,10 @@ func TestJoinedPemBoundariesAndShuffledChainAreFixed(t *testing.T) {
 		statuses[check.ID] = check.Status
 	}
 	want := map[string]Status{"KEY_MATCH": StatusPass, "CHAIN": StatusPass, "VALIDITY": StatusPass, "SAN": StatusPass,
-		"SERVER_AUTH": StatusPass, "KEY_STRENGTH": StatusPass, "SIGNATURE": StatusPass, "PUBLIC_TRUST": StatusWarn,
-		"REVOCATION": StatusSkipped}
+		"SERVER_AUTH": StatusPass, "KEY_STRENGTH": StatusPass, "SIGNATURE": StatusPass, "PUBLIC_TRUST": StatusWarn}
+	if len(analysis.Checks) != len(want) {
+		t.Errorf("점검 항목 %d개, 기대 %d개", len(analysis.Checks), len(want))
+	}
 	for id, status := range want {
 		if statuses[id] != status {
 			t.Errorf("%s 점검 = %v, 기대 %v", id, statuses[id], status)
@@ -189,11 +191,11 @@ func TestKeystoresRoundTrip(t *testing.T) {
 			if analysis.SelectedAlias == nil || *analysis.SelectedAlias != "my-server" {
 				t.Errorf("별칭 = %v", analysis.SelectedAlias)
 			}
-			wrong := Analyze([]InputSource{{Name: file.FileName, Data: file.Data}}, "wrong", "", false)
+			wrong := Analyze([]InputSource{{Name: file.FileName, Data: file.Data}}, "wrong", "")
 			if len(wrong.Errors) != 1 || !strings.Contains(wrong.Errors[0], "비밀번호가 올바르지 않거나") {
 				t.Errorf("잘못된 비밀번호 오류: %v", wrong.Errors)
 			}
-			none := Analyze([]InputSource{{Name: file.FileName, Data: file.Data}}, "", "", false)
+			none := Analyze([]InputSource{{Name: file.FileName, Data: file.Data}}, "", "")
 			if len(none.Errors) != 1 || !strings.Contains(none.Errors[0], "비밀번호로 보호된 키스토어") {
 				t.Errorf("비밀번호 없음 오류: %v", none.Errors)
 			}
@@ -228,17 +230,17 @@ func TestDerP7bAndHeaderlessInputsAreDetected(t *testing.T) {
 		"PEM":         text("chain.p7b.pem", string(pem.EncodeToMemory(&pem.Block{Type: "PKCS7", Bytes: p7b}))),
 	}
 	for format, source := range inputs {
-		analysis := Analyze([]InputSource{source}, "", "", false)
+		analysis := Analyze([]InputSource{source}, "", "")
 		if len(analysis.Errors) > 0 || !strings.Contains(analysis.Sources[0].Format, format) {
 			t.Errorf("%s: %+v %v", format, analysis.Sources, analysis.Errors)
 		}
 	}
 	headerless := base64.StdEncoding.EncodeToString(c.leaf.Raw)
-	analysis := Analyze([]InputSource{text("cert.txt", headerless)}, "", "", false)
+	analysis := Analyze([]InputSource{text("cert.txt", headerless)}, "", "")
 	if analysis.Bundle == nil || !strings.Contains(strings.Join(analysis.Sources[0].Notes, " "), "Base64") {
 		t.Errorf("헤더 없는 Base64: %+v %v", analysis.Sources, analysis.Errors)
 	}
-	garbage := Analyze([]InputSource{text("readme.txt", "hello")}, "", "", false)
+	garbage := Analyze([]InputSource{text("readme.txt", "hello")}, "", "")
 	if len(garbage.Errors) != 1 || !strings.Contains(garbage.Errors[0], "인증서/키 데이터를 찾을 수 없습니다") {
 		t.Errorf("인증서가 아닌 입력: %v", garbage.Errors)
 	}
@@ -262,7 +264,7 @@ func TestEncryptedAndTraditionalKeysRoundTrip(t *testing.T) {
 			if keyFormat == KeyPKCS8Encrypted {
 				password = "secret1"
 			}
-			analysis := Analyze([]InputSource{text("c.pem", chainPem), {Name: "k.key", Data: file.Data}}, password, "", false)
+			analysis := Analyze([]InputSource{text("c.pem", chainPem), {Name: "k.key", Data: file.Data}}, password, "")
 			if analysis.Bundle == nil || analysis.Bundle.PrivateKey == nil {
 				t.Errorf("EC=%v %s 키 다시 읽기 실패: %v", ec, keyFormat, analysis.Errors)
 			}
@@ -279,10 +281,10 @@ func TestLegacyEncryptedPemKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	sources := []InputSource{text("c.pem", pemOf(t, c.leaf)), {Name: "k.key", Data: pem.EncodeToMemory(block)}}
-	if analysis := Analyze(sources, "pass", "", false); analysis.Bundle.PrivateKey == nil {
+	if analysis := Analyze(sources, "pass", ""); analysis.Bundle.PrivateKey == nil {
 		t.Errorf("복호화 실패: %v", analysis.Errors)
 	}
-	if analysis := Analyze(sources, "nope", "", false); len(analysis.Errors) == 0 ||
+	if analysis := Analyze(sources, "nope", ""); len(analysis.Errors) == 0 ||
 		!strings.Contains(analysis.Errors[0], "개인키 비밀번호가 올바르지 않습니다") {
 		t.Errorf("잘못된 비밀번호: %v", analysis.Errors)
 	}
@@ -305,7 +307,7 @@ func TestZipArchiveInput(t *testing.T) {
 	}
 	writer.Close()
 
-	analysis := Analyze([]InputSource{{Name: "cert.zip", Data: buffer.Bytes()}}, "", "", false)
+	analysis := Analyze([]InputSource{{Name: "cert.zip", Data: buffer.Bytes()}}, "", "")
 	if len(analysis.Errors) > 0 || analysis.Bundle == nil || analysis.Bundle.PrivateKey == nil ||
 		len(analysis.Bundle.Certificates) != 3 {
 		t.Fatalf("ZIP 입력: %v %+v", analysis.Errors, analysis.Sources)
@@ -320,7 +322,7 @@ func TestMismatchedAndMissingKeys(t *testing.T) {
 	c := newTestChain(t, false, "example.com")
 	other := rsaKey(t)
 	analysis := Analyze([]InputSource{text("c.pem", pemOf(t, c.leaf, c.intermediate)), text("k.pem", pemOf(t, other))},
-		"", "", false)
+		"", "")
 	if analysis.Checks[0].Status != StatusFail {
 		t.Errorf("다른 키 점검 = %v", analysis.Checks[0].Status)
 	}

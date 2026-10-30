@@ -13,13 +13,9 @@ import (
 
 // 인증서 묶음에 대한 점검 항목을 실행한다. 결과는 화면의 점검표로 표시된다.
 
-// RunChecks 는 점검 항목을 순서대로 실행한다. checkRevocation 이 true 면 CA 의 OCSP/CRL 서버에 조회한다.
-func RunChecks(bundle *CertBundle, privateKeyProvided, checkRevocation bool) []CheckResult {
-	revocation := CheckResult{ID: "REVOCATION", Title: "폐기 여부", Status: StatusSkipped,
-		Summary: "확인하지 않음 ('폐기 여부 온라인 확인'을 켜면 CA 의 OCSP/CRL 서버에 조회합니다)", Details: []string{}}
-	if checkRevocation {
-		revocation = checkRevocationStatus(bundle)
-	}
+// RunChecks 는 점검 항목을 순서대로 실행한다.
+// 폐기 여부(OCSP/CRL) 확인은 하지 않는다. 브라우저에서는 CA 서버가 CORS 를 허용하지 않아 대부분 접속할 수 없기 때문이다.
+func RunChecks(bundle *CertBundle, privateKeyProvided bool) []CheckResult {
 	return []CheckResult{
 		checkKeyMatch(bundle, privateKeyProvided),
 		checkChain(bundle),
@@ -29,7 +25,6 @@ func RunChecks(bundle *CertBundle, privateKeyProvided, checkRevocation bool) []C
 		checkKeyStrength(bundle),
 		checkSignatureAlgorithm(bundle),
 		checkPublicTrust(bundle),
-		revocation,
 	}
 }
 
@@ -199,7 +194,7 @@ func checkSignatureAlgorithm(bundle *CertBundle) CheckResult {
 // 없더라도, 다른 경로로 신뢰된 루트에 닿으면 신뢰된 것으로 본다.
 func checkPublicTrust(bundle *CertBundle) CheckResult {
 	const title = "공인 루트 신뢰"
-	_, roots := trustStore()
+	roots := trustStore()
 	path := withoutRoot(bundle)
 	intermediates := x509.NewCertPool()
 	for _, certificate := range path[1:] {

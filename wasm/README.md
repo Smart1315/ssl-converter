@@ -42,14 +42,14 @@ go test ./...
 | `cert/keystore.go` | PFX/JKS 읽기·쓰기 (`InputParser.loadKeyStore`, `Exporter.keyStore`) |
 | `cert/pbe.go` | 암호화된 개인키, PFX 암호화 (BouncyCastle PBE) |
 | `cert/chain.go` | 서버 인증서 찾기, 체인 정렬 (`ChainResolver`) |
-| `cert/checks.go`, `cert/revocation.go` | 점검 항목, 폐기 여부 (`CertificateChecks`, `RevocationChecker`) |
+| `cert/checks.go` | 점검 항목 (`CertificateChecks`) |
 | `cert/exporter.go`, `cert/service.go` | 출력 파일 생성, 분석/변환 묶음 (`Exporter`, `ConverterService`) |
 | `cmd/wasm/main.go` | 브라우저 진입점 (`ConverterController`) |
 
 ## Spring 판과 다른 점
 
 - **공인 루트 신뢰**: JDK cacerts 대신 Mozilla(NSS) 루트 목록을 엔진에 내장합니다. `golang.org/x/crypto/x509roots/fallback` 을 올리고 다시 빌드하면 갱신됩니다.
-- **폐기 여부 온라인 확인**: 브라우저 `fetch` 로 접속하므로 CORS 헤더를 주지 않는 OCSP/CRL 서버나, HTTPS 페이지에서의 `http://` 주소는 브라우저가 막아 '확인 실패'로 표시됩니다. 대부분의 공인 CA 가 여기에 해당합니다.
+- **폐기 여부 온라인 확인(OCSP/CRL)은 제외**했습니다. 대부분의 CA 서버가 CORS 를 허용하지 않고 주소도 `http://` 여서 브라우저가 접속을 막기 때문입니다. 화면의 해당 옵션은 숨기며, 필요하면 Spring 판을 사용하세요.
 - **JCEKS 입력**은 지원하지 않습니다. `keytool -importkeystore` 로 PKCS12 로 바꿔서 올리세요.
 - **DSA 개인키**와 RC2 로 암호화된 PKCS#8 개인키는 읽지 못합니다 (RC2 로 암호화된 구형 PFX 는 읽습니다).
 - 별칭(friendlyName) 이 없는 PFX 는 별칭을 `1` 로 표시합니다.

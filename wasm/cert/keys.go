@@ -20,7 +20,8 @@ import (
 
 // keyMatches 는 개인키가 공개키와 짝인지 확인한다.
 func keyMatches(privateKey crypto.Signer, publicKey crypto.PublicKey) bool {
-	return keyEqual(privateKey.Public(), publicKey)
+	key, ok := privateKey.Public().(interface{ Equal(crypto.PublicKey) bool })
+	return ok && key.Equal(publicKey)
 }
 
 var curveNames = map[string]string{"P-224": "secp224r1", "P-256": "prime256v1", "P-384": "secp384r1",

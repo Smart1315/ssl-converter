@@ -18,14 +18,12 @@ func main() {
 	// Go 의 WebAssembly 런타임은 시간대를 모르므로 브라우저의 시간대로 맞춘다
 	offset := js.Global().Get("Date").New().Call("getTimezoneOffset").Int()
 	time.Local = time.FixedZone("Local", -offset*60)
-	cert.RevocationFetcher = fetch
 
 	api := js.Global().Get("Object").New()
 	api.Set("analyze", js.FuncOf(func(_ js.Value, args []js.Value) any {
 		request := args[0]
 		return promise(func() (map[string]any, error) {
-			analysis := cert.Analyze(sources(request), str(request, "password"), str(request, "alias"),
-				str(request, "checkRevocation") == "true")
+			analysis := cert.Analyze(sources(request), str(request, "password"), str(request, "alias"))
 			encoded, err := json.Marshal(analysis)
 			if err != nil {
 				return nil, err
@@ -54,7 +52,7 @@ func main() {
 	select {}
 }
 
-// promise 는 work 를 고루틴에서 실행한다. 폐기 여부 확인처럼 fetch 를 기다리는 작업이 JS 이벤트 루프를 막지 않게 하기 위해서다.
+// promise 는 work 를 고루틴에서 실행하고, 패닉이 나도 오류 응답으로 바꿔 돌려준다.
 func promise(work func() (map[string]any, error)) js.Value {
 	var executor js.Func
 	executor = js.FuncOf(func(_ js.Value, args []js.Value) any {
@@ -137,55 +135,4 @@ func str(request js.Value, name string) string {
 		return ""
 	}
 	return value.String()
-}
-
-// fetch 는 브라우저 fetch API 로 요청한다. 고루틴에서 호출되어야 한다.
-func fetch(method, url, contentType string, body []byte) ([]byte, error) {
-	type result struct {
-		data []byte
-		err  error
-	}
-	done := make(chan result, 1)
-	options := map[string]any{"method": method, "redirect": "error"}
-	if body != nil {
-		array := js.Global().Get("Uint8Array").New(len(body))
-		js.CopyBytesToJS(array, body)
-		options["body"] = array
-		options["headers"] = map[string]any{"Content-Type": contentType}
-	}
-	var onResponse, onBody, onError js.Func
-	onError = js.FuncOf(func(_ js.Value, args []js.Value) any {
-		message := "요청 실패"
-		if len(args) > 0 && args[0].Truthy() {
-			message = args[0].Get("message").String()
-		}
-		done <- result{err: errors.New(message + " (CORS 차단 또는 네트워크 오류)")}
-		return nil
-	})
-	onBody = js.FuncOf(func(_ js.Value, args []js.Value) any {
-		array := js.Global().Get("Uint8Array").New(args[0])
-		data := make([]byte, array.Length())
-		js.CopyBytesToGo(data, array)
-		done <- result{data: data}
-		return nil
-	})
-	onResponse = js.FuncOf(func(_ js.Value, args []js.Value) any {
-		response := args[0]
-		if !response.Get("ok").Bool() {
-			done <- result{err: fmt.Errorf("HTTP %d", response.Get("status").Int())}
-			return nil
-		}
-		response.Call("arrayBuffer").Call("then", onBody).Call("catch", onError)
-		return nil
-	})
-	defer onResponse.Release()
-	defer onBody.Release()
-	defer onError.Release()
-	js.Global().Call("fetch", url, options).Call("then", onResponse).Call("catch", onError)
-	select {
-	case r := <-done:
-		return r.data, r.err
-	case <-time.After(15 * time.Second):
-		return nil, errors.New("시간 초과")
-	}
 }

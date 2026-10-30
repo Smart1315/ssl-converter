@@ -42,8 +42,8 @@ type KeyView struct {
 	MatchesCertificate bool   `json:"matchesCertificate"`
 }
 
-// Analyze 는 입력을 해석하고 점검한다. checkRevocation 이 true 면 CA 의 OCSP/CRL 서버에 접속해 폐기 여부를 확인한다.
-func Analyze(sources []InputSource, password, alias string, checkRevocation bool) Analysis {
+// Analyze 는 입력을 해석하고 점검한다.
+func Analyze(sources []InputSource, password, alias string) Analysis {
 	input := Parse(sources, password, alias)
 	bundle := Resolve(input)
 	errorsList := append([]string{}, input.Errors...)
@@ -65,7 +65,7 @@ func Analyze(sources []InputSource, password, alias string, checkRevocation bool
 		}
 		view := toView(bundle)
 		analysis.Bundle = &view
-		analysis.Checks = RunChecks(bundle, len(input.PrivateKeys()) > 0, checkRevocation)
+		analysis.Checks = RunChecks(bundle, len(input.PrivateKeys()) > 0)
 		baseName, suggestedAliasValue := suggestedBaseName(bundle.Leaf), suggestedAlias(bundle.Leaf)
 		analysis.SuggestedBaseName, analysis.SuggestedAlias = &baseName, &suggestedAliasValue
 	}
