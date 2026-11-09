@@ -1,15 +1,22 @@
 package cert
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/x509"
 	"fmt"
+	"math"
 	"slices"
 )
 
 // 입력 순서와 상관없이 서버 인증서를 찾고, 발급자 관계(DN + 서명 검증)를 따라 체인을 올바른 순서로 정렬한다.
+// 교차 서명 인증서가 함께 들어 있으면 발급 경로가 여러 개가 된다. 이때는 브라우저처럼 신뢰된 루트에 가장 가까이 닿는 경로를 고르고,
+// 고르지 않은 경로의 인증서는 체인과 상관없는 인증서와 구분해 대체 경로 인증서로 둔다.
 
-const expiryWarningDays = 30
+const (
+	expiryWarningDays = 30
+	maxPaths          = 64
+)
 
 // Resolve 는 인증서 묶음을 정리한다. 인증서가 없으면 nil.
 func Resolve(input *ParsedInput) *CertBundle {
@@ -44,12 +51,27 @@ func Resolve(input *ParsedInput) *CertBundle {
 		leaf = pickLeaf(certificates, &warnings)
 	}
 
-	chain := buildChain(leaf, certificates)
-	unrelated := []*x509.Certificate{}
+	paths := findPaths(leaf, certificates)
+	chain := choosePath(paths).chain
+	onPaths := map[*x509.Certificate]bool{}
+	for _, path := range paths {
+		for _, certificate := range path.chain {
+			onPaths[certificate] = true
+		}
+	}
+	alternates, unrelated := []*x509.Certificate{}, []*x509.Certificate{}
 	for _, certificate := range certificates {
-		if certificate != leaf && !slices.Contains(chain, certificate) {
+		switch {
+		case certificate == leaf || slices.Contains(chain, certificate):
+		case onPaths[certificate] || isCrossSigned(certificate, chain):
+			alternates = append(alternates, certificate)
+		default:
 			unrelated = append(unrelated, certificate)
 		}
+	}
+	if len(alternates) > 0 {
+		notices = append(notices, fmt.Sprintf("다른 발급 경로(교차 서명 등)의 인증서 %d개는 출력에서 제외됩니다. "+
+			"브라우저처럼 신뢰된 루트에 가장 가까운 경로를 체인으로 골랐습니다.", len(alternates)))
 	}
 	if len(unrelated) > 0 {
 		notices = append(notices, fmt.Sprintf("체인에 속하지 않는 인증서 %d개는 출력에서 제외됩니다.", len(unrelated)))
@@ -73,8 +95,8 @@ func Resolve(input *ParsedInput) *CertBundle {
 	}
 	checkValidity(leaf, chain, &warnings)
 
-	return &CertBundle{Leaf: leaf, Chain: chain, PrivateKey: key, Unrelated: unrelated, Warnings: warnings,
-		Notices: notices}
+	return &CertBundle{Leaf: leaf, Chain: chain, PrivateKey: key, Alternates: alternates, Unrelated: unrelated,
+		Warnings: warnings, Notices: notices}
 }
 
 func pickLeaf(certificates []*x509.Certificate, warnings *[]string) *x509.Certificate {
@@ -107,37 +129,108 @@ func pickLeaf(certificates []*x509.Certificate, warnings *[]string) *x509.Certif
 	return leaf
 }
 
-func buildChain(leaf *x509.Certificate, certificates []*x509.Certificate) []*x509.Certificate {
-	chain := []*x509.Certificate{}
-	visited := map[*x509.Certificate]bool{leaf: true}
-	for current := leaf; !isSelfSigned(current); {
-		issuer := findIssuer(current, certificates, visited)
-		if issuer == nil {
-			break
-		}
-		chain = append(chain, issuer)
-		visited[issuer] = true
-		current = issuer
-	}
-	return chain
+// issuerPath 는 서버 인증서의 발급자부터 상위 방향의 경로. nameOnlyLinks 는 서명은 맞지 않고 이름만 맞아 이어진 연결 수.
+type issuerPath struct {
+	chain         []*x509.Certificate
+	nameOnlyLinks int
 }
 
-// findIssuer 는 서명까지 맞는 발급자를 우선하고, 없으면 이름만 맞는 인증서를 돌려준다.
-func findIssuer(certificate *x509.Certificate, candidates []*x509.Certificate,
-	visited map[*x509.Certificate]bool) *x509.Certificate {
-	var nameMatch *x509.Certificate
-	for _, candidate := range candidates {
-		if visited[candidate] || !sameName(certificate.RawIssuer, candidate.RawSubject) {
-			continue
+// findPaths 는 서버 인증서에서 루트 방향으로 갈 수 있는 경로를 모두 찾는다. 서명까지 맞는 발급자가 있으면 그것만 따라가고,
+// 없으면 이름만 맞는 인증서를 따라간다.
+func findPaths(leaf *x509.Certificate, certificates []*x509.Certificate) []issuerPath {
+	var paths []issuerPath
+	visited := map[*x509.Certificate]bool{leaf: true}
+	var walk func(current *x509.Certificate, chain []*x509.Certificate, nameOnlyLinks int)
+	walk = func(current *x509.Certificate, chain []*x509.Certificate, nameOnlyLinks int) {
+		if len(paths) >= maxPaths {
+			return
 		}
-		if verifies(certificate, candidate) {
-			return candidate
+		var verified, nameMatches []*x509.Certificate
+		if !isSelfSigned(current) {
+			for _, candidate := range certificates {
+				if visited[candidate] || !sameName(current.RawIssuer, candidate.RawSubject) {
+					continue
+				}
+				if verifies(current, candidate) {
+					verified = append(verified, candidate)
+				} else {
+					nameMatches = append(nameMatches, candidate)
+				}
+			}
 		}
-		if nameMatch == nil {
-			nameMatch = candidate
+		issuers, link := verified, 0
+		if len(verified) == 0 {
+			issuers, link = nameMatches, 1
+		}
+		if len(issuers) == 0 {
+			paths = append(paths, issuerPath{chain: slices.Clone(chain), nameOnlyLinks: nameOnlyLinks})
+			return
+		}
+		for _, issuer := range issuers {
+			visited[issuer] = true
+			walk(issuer, append(slices.Clip(chain), issuer), nameOnlyLinks+link)
+			visited[issuer] = false
 		}
 	}
-	return nameMatch
+	walk(leaf, []*x509.Certificate{}, 0)
+	return paths
+}
+
+// choosePath 는 브라우저가 고르는 경로에 가깝게, 신뢰된 루트에 더 일찍 닿는 경로 → 루트(자체 서명)로 끝나는 경로 →
+// 서명이 확인된 경로 → 짧은 경로 순으로 고른다. 조건이 같으면 입력 순서상 먼저 찾은 경로.
+func choosePath(paths []issuerPath) issuerPath {
+	best := paths[0]
+	for _, path := range paths[1:] {
+		if comparePaths(path, best) < 0 {
+			best = path
+		}
+	}
+	return best
+}
+
+func comparePaths(a, b issuerPath) int {
+	if a.trustedDepth() != b.trustedDepth() {
+		if a.trustedDepth() < b.trustedDepth() {
+			return -1
+		}
+		return 1
+	}
+	if a.complete() != b.complete() {
+		if a.complete() {
+			return -1
+		}
+		return 1
+	}
+	if c := a.nameOnlyLinks - b.nameOnlyLinks; c != 0 {
+		return c
+	}
+	return len(a.chain) - len(b.chain)
+}
+
+// trustedDepth 는 신뢰된 루트에 닿는 위치. 체인 안에 신뢰된 루트(교차 서명본 포함)가 있으면 그 위치, 마지막 인증서의 발급자가
+// 신뢰 저장소에 있으면 체인 길이, 닿지 않으면 가장 큰 값.
+func (p issuerPath) trustedDepth() int {
+	for i, certificate := range p.chain {
+		if isTrustedRoot(certificate) {
+			return i
+		}
+	}
+	if len(p.chain) > 0 && !p.complete() && trustedIssuer(p.chain[len(p.chain)-1]) != nil {
+		return len(p.chain)
+	}
+	return math.MaxInt
+}
+
+func (p issuerPath) complete() bool {
+	return len(p.chain) > 0 && isSelfSigned(p.chain[len(p.chain)-1])
+}
+
+// isCrossSigned 는 체인의 인증서와 이름·공개키가 같은, 다른 CA 가 서명한 인증서인지 확인한다.
+func isCrossSigned(certificate *x509.Certificate, chain []*x509.Certificate) bool {
+	return slices.ContainsFunc(chain, func(member *x509.Certificate) bool {
+		return member != certificate && sameName(member.RawSubject, certificate.RawSubject) &&
+			bytes.Equal(member.RawSubjectPublicKeyInfo, certificate.RawSubjectPublicKeyInfo)
+	})
 }
 
 func checkValidity(leaf *x509.Certificate, chain []*x509.Certificate, warnings *[]string) {

@@ -96,6 +96,7 @@ type CertBundle struct {
 	Leaf       *x509.Certificate
 	Chain      []*x509.Certificate
 	PrivateKey crypto.Signer
+	Alternates []*x509.Certificate // 고르지 않은 다른 발급 경로(교차 서명 등)의 인증서. 출력에서 제외된다
 	Unrelated  []*x509.Certificate
 	Warnings   []string
 	Notices    []string

@@ -40,6 +40,7 @@ type Analysis struct {
 // BundleView 는 정렬된 체인 정보. Certificates 는 서버 인증서부터 루트 방향 순서.
 type BundleView struct {
 	Certificates []CertDetails `json:"certificates"`
+	Alternates   []CertDetails `json:"alternates"`
 	Unrelated    []CertDetails `json:"unrelated"`
 	PrivateKey   *KeyView      `json:"privateKey"`
 	RootIncluded bool          `json:"rootIncluded"`
@@ -261,6 +262,14 @@ func toView(bundle *CertBundle) BundleView {
 		}
 		certificates = append(certificates, describe(certificate, role))
 	}
+	alternates := []CertDetails{}
+	for _, certificate := range bundle.Alternates {
+		role := "대체 경로 인증서"
+		if isCrossSigned(certificate, bundle.Chain) {
+			role = "교차 서명 인증서"
+		}
+		alternates = append(alternates, describe(certificate, role))
+	}
 	unrelated := []CertDetails{}
 	for _, certificate := range bundle.Unrelated {
 		unrelated = append(unrelated, describe(certificate, "체인 외 인증서"))
@@ -269,7 +278,7 @@ func toView(bundle *CertBundle) BundleView {
 	if bundle.HasPrivateKey() {
 		key = &KeyView{Description: describeKey(bundle.PrivateKey), MatchesCertificate: true}
 	}
-	return BundleView{Certificates: certificates, Unrelated: unrelated, PrivateKey: key,
+	return BundleView{Certificates: certificates, Alternates: alternates, Unrelated: unrelated, PrivateKey: key,
 		RootIncluded: bundle.RootIncluded()}
 }
 

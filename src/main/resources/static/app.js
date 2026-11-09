@@ -160,9 +160,11 @@ function renderAnalysis(a) {
 		: '<span class="badge warn">개인키 없음</span>';
 	$('chain').innerHTML = b.certificates.map((c, i) => certCard(c, i === 0, i === 0 ? keyBadge : '')).join('<div class="link">▲ 위 인증서를 발급</div>');
 
-	$('unrelated').innerHTML = b.unrelated.length
-		? `<h3 class="muted" style="font-size:13px;margin:14px 0 6px">체인에 속하지 않는 인증서 (출력 제외)</h3>${b.unrelated.map((c) => certCard(c, false, '')).join('')}`
+	const excluded = (title, list) => list && list.length
+		? `<h3 class="muted" style="font-size:13px;margin:14px 0 6px">${title}</h3>${list.map((c) => certCard(c, false, '')).join('')}`
 		: '';
+	$('unrelated').innerHTML = excluded('다른 발급 경로의 인증서 (교차 서명 등, 출력 제외)', b.alternates)
+		+ excluded('체인에 속하지 않는 인증서 (출력 제외)', b.unrelated);
 
 	if (!state.baseNameTouched) $('baseName').value = a.suggestedBaseName || '';
 	if (!state.aliasTouched) $('outAlias').value = a.suggestedAlias || '';

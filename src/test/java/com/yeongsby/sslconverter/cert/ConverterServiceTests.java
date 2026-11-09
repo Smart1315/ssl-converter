@@ -2,10 +2,12 @@ package com.yeongsby.sslconverter.cert;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
 import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -21,6 +23,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 class ConverterServiceTests {
 
@@ -320,6 +323,36 @@ class ConverterServiceTests {
 		ExportOptions encrypted = new ExportOptions(EnumSet.of(OutputFormat.KEY_PEM), null, null, null, true, false,
 				ExportOptions.KeyFormat.PKCS8, true, true);
 		assertThatThrownBy(() -> convert(sources, encrypted)).hasMessage(ConverterService.NO_PASSWORD_ENCRYPT_KEY);
+	}
+
+	@Test
+	void crossSignedCertificatesAreSeparatedFromUnrelated() throws Exception {
+		// New Root CA 는 자체 서명본과 Test Root CA 가 교차 서명한 것이 함께 있다. 교차 서명본이 먼저 나와도 짧은 경로를 고른다.
+		KeyPair newRootKey = TestCertificates.rsaKey(2048);
+		KeyPair intermediateKey = TestCertificates.rsaKey(2048);
+		KeyPair leafKey = TestCertificates.rsaKey(2048);
+		X509Certificate crossSigned = TestCertificates.issue("CN=New Root CA", newRootKey.getPublic(), rsa.root,
+				rsa.rootKey, "SHA256withRSA", (builder) -> {
+				});
+		X509Certificate newRoot = TestCertificates.issue("CN=New Root CA", newRootKey.getPublic(), crossSigned,
+				newRootKey, "SHA256withRSA", (builder) -> {
+				});
+		X509Certificate intermediate = TestCertificates.issue("CN=New Intermediate CA", intermediateKey.getPublic(),
+				newRoot, newRootKey, "SHA256withRSA", (builder) -> {
+				});
+		X509Certificate leaf = TestCertificates.issue("CN=cross.example.com", leafKey.getPublic(), intermediate,
+				intermediateKey, "SHA256withRSA", (builder) -> {
+				});
+
+		Analysis analysis = this.service.analyze(List.of(source("bundle.pem",
+				TestCertificates.pem(leaf, crossSigned, intermediate, rsa.intermediate, newRoot, rsa.root))), null, null);
+
+		assertThat(analysis.bundle().certificates()).extracting("commonName", "role")
+			.containsExactly(tuple("cross.example.com", "서버 인증서"), tuple("New Intermediate CA", "중간 CA"),
+					tuple("New Root CA", "루트 CA"));
+		assertThat(analysis.bundle().alternates()).extracting("commonName", "role")
+			.containsExactly(tuple("New Root CA", "교차 서명 인증서"), tuple("Test Root CA", "대체 경로 인증서"));
+		assertThat(analysis.bundle().unrelated()).extracting("commonName").containsExactly("Test Intermediate CA");
 	}
 
 	private ExportedFile convert(List<InputSource> sources, ExportOptions options) {

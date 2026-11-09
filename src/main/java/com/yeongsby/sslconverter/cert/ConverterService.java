@@ -229,12 +229,17 @@ public class ConverterService {
 			certificates.add(CertInspector.describe(certificate,
 					ChainResolver.isSelfSigned(certificate) ? "루트 CA" : "중간 CA"));
 		}
+		List<CertDetails> alternates = bundle.alternates()
+			.stream()
+			.map((certificate) -> CertInspector.describe(certificate,
+					ChainResolver.isCrossSigned(certificate, bundle.chain()) ? "교차 서명 인증서" : "대체 경로 인증서"))
+			.toList();
 		List<CertDetails> unrelated = bundle.unrelated()
 			.stream()
 			.map((certificate) -> CertInspector.describe(certificate, "체인 외 인증서"))
 			.toList();
 		KeyView key = bundle.hasPrivateKey() ? new KeyView(KeyUtils.describe(bundle.privateKey()), true) : null;
-		return new BundleView(certificates, unrelated, key, bundle.rootIncluded());
+		return new BundleView(certificates, alternates, unrelated, key, bundle.rootIncluded());
 	}
 
 	static String suggestedBaseName(X509Certificate leaf) {
@@ -278,9 +283,11 @@ public class ConverterService {
 	}
 
 	/**
-	 * 정렬된 체인 정보. certificates 는 서버 인증서부터 루트 방향 순서.
+	 * 정렬된 체인 정보. certificates 는 서버 인증서부터 루트 방향 순서. alternates 는 고르지 않은 다른 발급 경로(교차 서명 등)의
+	 * 인증서, unrelated 는 체인과 상관없는 인증서.
 	 */
-	public record BundleView(List<CertDetails> certificates, List<CertDetails> unrelated, KeyView privateKey,
+	public record BundleView(List<CertDetails> certificates, List<CertDetails> alternates, List<CertDetails> unrelated,
+			KeyView privateKey,
 			boolean rootIncluded) {
 	}
 

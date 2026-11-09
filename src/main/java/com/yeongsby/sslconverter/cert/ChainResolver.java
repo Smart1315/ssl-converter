@@ -5,6 +5,7 @@ import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -13,11 +14,16 @@ import org.springframework.stereotype.Component;
 
 /**
  * 입력 순서와 상관없이 서버 인증서를 찾고, 발급자 관계(DN + 서명 검증)를 따라 체인을 올바른 순서로 정렬한다.
+ * <p>
+ * 교차 서명 인증서가 함께 들어 있으면 발급 경로가 여러 개가 된다. 이때는 브라우저처럼 신뢰된 루트에 가장 가까이 닿는 경로를 고르고,
+ * 고르지 않은 경로의 인증서는 체인과 상관없는 인증서와 구분해 대체 경로 인증서로 둔다.
  */
 @Component
 public class ChainResolver {
 
 	private static final int EXPIRY_WARNING_DAYS = 30;
+
+	private static final int MAX_PATHS = 64;
 
 	public CertBundle resolve(ParsedInput input) {
 		List<X509Certificate> certificates = input.certificates();
@@ -53,12 +59,26 @@ public class ChainResolver {
 			leaf = pickLeaf(certificates, warnings);
 		}
 
-		List<X509Certificate> chain = buildChain(leaf, certificates);
+		List<IssuerPath> paths = findPaths(leaf, certificates);
+		List<X509Certificate> chain = choose(paths).chain();
+		Set<X509Certificate> onPaths = new HashSet<>();
+		paths.forEach((path) -> onPaths.addAll(path.chain()));
+		List<X509Certificate> alternates = new ArrayList<>();
 		List<X509Certificate> unrelated = new ArrayList<>();
 		for (X509Certificate certificate : certificates) {
-			if (certificate != leaf && !chain.contains(certificate)) {
+			if (certificate == leaf || chain.contains(certificate)) {
+				continue;
+			}
+			if (onPaths.contains(certificate) || isCrossSigned(certificate, chain)) {
+				alternates.add(certificate);
+			}
+			else {
 				unrelated.add(certificate);
 			}
+		}
+		if (!alternates.isEmpty()) {
+			notices.add("다른 발급 경로(교차 서명 등)의 인증서 " + alternates.size()
+					+ "개는 출력에서 제외됩니다. 브라우저처럼 신뢰된 루트에 가장 가까운 경로를 체인으로 골랐습니다.");
 		}
 		if (!unrelated.isEmpty()) {
 			notices.add("체인에 속하지 않는 인증서 " + unrelated.size() + "개는 출력에서 제외됩니다.");
@@ -78,7 +98,7 @@ public class ChainResolver {
 		}
 		checkValidity(leaf, chain, warnings);
 
-		return new CertBundle(leaf, chain, key, unrelated, warnings, notices);
+		return new CertBundle(leaf, chain, key, alternates, unrelated, warnings, notices);
 	}
 
 	private X509Certificate pickLeaf(List<X509Certificate> certificates, List<String> warnings) {
@@ -105,39 +125,101 @@ public class ChainResolver {
 		return leaf;
 	}
 
-	private List<X509Certificate> buildChain(X509Certificate leaf, List<X509Certificate> certificates) {
-		List<X509Certificate> chain = new ArrayList<>();
+	/**
+	 * 서버 인증서에서 루트 방향으로 갈 수 있는 경로를 모두 찾는다. 서명까지 맞는 발급자가 있으면 그것만 따라가고, 없으면 이름만 맞는
+	 * 인증서를 따라간다.
+	 */
+	private List<IssuerPath> findPaths(X509Certificate leaf, List<X509Certificate> certificates) {
+		List<IssuerPath> paths = new ArrayList<>();
 		Set<X509Certificate> visited = new HashSet<>();
 		visited.add(leaf);
-		X509Certificate current = leaf;
-		while (!isSelfSigned(current)) {
-			X509Certificate issuer = findIssuer(current, certificates, visited);
-			if (issuer == null) {
-				break;
-			}
-			chain.add(issuer);
-			visited.add(issuer);
-			current = issuer;
-		}
-		return chain;
+		walk(leaf, certificates, new ArrayList<>(), 0, visited, paths);
+		return paths;
 	}
 
-	private X509Certificate findIssuer(X509Certificate certificate, List<X509Certificate> candidates,
-			Set<X509Certificate> visited) {
-		X509Certificate nameMatch = null;
-		for (X509Certificate candidate : candidates) {
-			if (visited.contains(candidate)
-					|| !certificate.getIssuerX500Principal().equals(candidate.getSubjectX500Principal())) {
-				continue;
-			}
-			if (verifies(certificate, candidate)) {
-				return candidate;
-			}
-			if (nameMatch == null) {
-				nameMatch = candidate;
+	private void walk(X509Certificate current, List<X509Certificate> certificates, List<X509Certificate> chain,
+			int nameOnlyLinks, Set<X509Certificate> visited, List<IssuerPath> paths) {
+		if (paths.size() >= MAX_PATHS) {
+			return;
+		}
+		List<X509Certificate> verified = new ArrayList<>();
+		List<X509Certificate> nameMatches = new ArrayList<>();
+		if (!isSelfSigned(current)) {
+			for (X509Certificate candidate : certificates) {
+				if (visited.contains(candidate)
+						|| !current.getIssuerX500Principal().equals(candidate.getSubjectX500Principal())) {
+					continue;
+				}
+				(verifies(current, candidate) ? verified : nameMatches).add(candidate);
 			}
 		}
-		return nameMatch;
+		List<X509Certificate> issuers = verified.isEmpty() ? nameMatches : verified;
+		if (issuers.isEmpty()) {
+			paths.add(new IssuerPath(List.copyOf(chain), nameOnlyLinks));
+			return;
+		}
+		for (X509Certificate issuer : issuers) {
+			chain.add(issuer);
+			visited.add(issuer);
+			walk(issuer, certificates, chain, nameOnlyLinks + (verified.isEmpty() ? 1 : 0), visited, paths);
+			visited.remove(issuer);
+			chain.remove(chain.size() - 1);
+		}
+	}
+
+	/**
+	 * 브라우저가 고르는 경로에 가깝게, 신뢰된 루트에 더 일찍 닿는 경로 → 루트(자체 서명)로 끝나는 경로 → 서명이 확인된 경로 → 짧은 경로
+	 * 순으로 고른다. 조건이 같으면 입력 순서상 먼저 찾은 경로.
+	 */
+	private IssuerPath choose(List<IssuerPath> paths) {
+		return paths.stream()
+			.min(Comparator.comparingInt(IssuerPath::trustedDepth)
+				.thenComparing(IssuerPath::complete, Comparator.reverseOrder())
+				.thenComparingInt(IssuerPath::nameOnlyLinks)
+				.thenComparingInt((path) -> path.chain().size()))
+			.orElseThrow();
+	}
+
+	/**
+	 * 체인의 인증서와 이름·공개키가 같은, 다른 CA 가 서명한 인증서인지.
+	 */
+	static boolean isCrossSigned(X509Certificate certificate, List<X509Certificate> chain) {
+		return chain.stream()
+			.anyMatch((member) -> member != certificate
+					&& member.getSubjectX500Principal().equals(certificate.getSubjectX500Principal())
+					&& member.getPublicKey().equals(certificate.getPublicKey()));
+	}
+
+	/**
+	 * @param chain 서버 인증서의 발급자부터 상위 방향
+	 * @param nameOnlyLinks 서명은 맞지 않고 이름만 맞아 이어진 연결 수
+	 */
+	private record IssuerPath(List<X509Certificate> chain, int nameOnlyLinks) {
+
+		/**
+		 * 신뢰된 루트에 닿는 위치. 체인 안에 신뢰된 루트(교차 서명본 포함)가 있으면 그 위치, 마지막 인증서의 발급자가 신뢰 저장소에
+		 * 있으면 체인 길이, 닿지 않으면 가장 큰 값.
+		 */
+		int trustedDepth() {
+			for (int i = 0; i < this.chain.size(); i++) {
+				if (TrustStore.isTrustedRoot(this.chain.get(i))) {
+					return i;
+				}
+			}
+			if (!this.chain.isEmpty() && !complete() && TrustStore.findIssuer(top()) != null) {
+				return this.chain.size();
+			}
+			return Integer.MAX_VALUE;
+		}
+
+		boolean complete() {
+			return !this.chain.isEmpty() && isSelfSigned(top());
+		}
+
+		private X509Certificate top() {
+			return this.chain.get(this.chain.size() - 1);
+		}
+
 	}
 
 	private void checkValidity(X509Certificate leaf, List<X509Certificate> chain, List<String> warnings) {

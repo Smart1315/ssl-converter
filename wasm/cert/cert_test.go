@@ -503,3 +503,39 @@ func TestNoPasswordRejectsJksAndKeyEncryption(t *testing.T) {
 		t.Errorf("개인키 암호화: %v", err)
 	}
 }
+
+func TestCrossSignedCertificatesAreSeparatedFromUnrelated(t *testing.T) {
+	// New Root CA 는 자체 서명본과 Test Root CA 가 교차 서명한 것이 함께 있다. 교차 서명본이 먼저 나와도 짧은 경로를 고른다.
+	c := newTestChain(t, false, "example.com")
+	newRootKey, intermediateKey, leafKey := rsaKey(t), rsaKey(t), rsaKey(t)
+	newRootName := pkix.Name{CommonName: "New Root CA"}
+	intermediateName := pkix.Name{CommonName: "New Intermediate CA"}
+	crossSigned := issue(t, newRootName, newRootKey, c.root.Subject, c.rootKey, c.root, true, "")
+	newRoot := issue(t, newRootName, newRootKey, newRootName, newRootKey, nil, true, "")
+	intermediate := issue(t, intermediateName, intermediateKey, newRootName, newRootKey, newRoot, true, "")
+	leaf := issue(t, pkix.Name{CommonName: "cross.example.com"}, leafKey, intermediateName, intermediateKey,
+		intermediate, false, "cross.example.com")
+
+	analysis := Analyze([]InputSource{text("bundle.pem",
+		pemOf(t, leaf, crossSigned, intermediate, c.intermediate, newRoot, c.root))}, "", "")
+	if len(analysis.Errors) > 0 {
+		t.Fatal(analysis.Errors)
+	}
+	describeAll := func(list []CertDetails) string {
+		var parts []string
+		for _, details := range list {
+			parts = append(parts, *details.CommonName+"/"+details.Role)
+		}
+		return strings.Join(parts, ", ")
+	}
+	view := analysis.Bundle
+	if got := describeAll(view.Certificates); got != "cross.example.com/서버 인증서, New Intermediate CA/중간 CA, New Root CA/루트 CA" {
+		t.Errorf("체인: %s", got)
+	}
+	if got := describeAll(view.Alternates); got != "New Root CA/교차 서명 인증서, Test Root CA/대체 경로 인증서" {
+		t.Errorf("대체 경로: %s", got)
+	}
+	if got := describeAll(view.Unrelated); got != "Test Intermediate CA/체인 외 인증서" {
+		t.Errorf("체인 외: %s", got)
+	}
+}
