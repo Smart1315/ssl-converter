@@ -19,7 +19,11 @@ const (
 )
 
 // Resolve 는 인증서 묶음을 정리한다. 인증서가 없으면 nil.
-func Resolve(input *ParsedInput) *CertBundle {
+func Resolve(input *ParsedInput) *CertBundle { return ResolveWith(input, false) }
+
+// ResolveWith 는 preferCrossSigned 가 true 면 교차 서명 인증서를 거쳐 옛 루트까지 가는 경로가 있을 때 그 경로를 고른다
+// (새 루트를 모르는 구형 클라이언트 호환).
+func ResolveWith(input *ParsedInput, preferCrossSigned bool) *CertBundle {
 	certificates := input.Certificates()
 	if len(certificates) == 0 {
 		return nil
@@ -52,7 +56,17 @@ func Resolve(input *ParsedInput) *CertBundle {
 	}
 
 	paths := findPaths(leaf, certificates)
-	chain := choosePath(paths).chain
+	crossSigned := crossSignedRoots(certificates)
+	crossSignedPathAvailable := slices.ContainsFunc(paths, func(path issuerPath) bool {
+		return path.passesAny(crossSigned)
+	})
+	preferred := map[*x509.Certificate]bool{}
+	if preferCrossSigned {
+		preferred = crossSigned
+	}
+	chosen := choosePath(paths, preferred)
+	crossSignedPathChosen := chosen.passesAny(crossSigned)
+	chain := chosen.chain
 	onPaths := map[*x509.Certificate]bool{}
 	for _, path := range paths {
 		for _, certificate := range path.chain {
@@ -70,8 +84,12 @@ func Resolve(input *ParsedInput) *CertBundle {
 		}
 	}
 	if len(alternates) > 0 {
-		notices = append(notices, fmt.Sprintf("다른 발급 경로(교차 서명 등)의 인증서 %d개는 출력에서 제외됩니다. "+
-			"브라우저처럼 신뢰된 루트에 가장 가까운 경로를 체인으로 골랐습니다.", len(alternates)))
+		reason := "브라우저처럼 신뢰된 루트에 가장 가까운 경로를 체인으로 골랐습니다."
+		if crossSignedPathChosen {
+			reason = "구형 클라이언트 호환을 위해 교차 서명 인증서를 거치는 경로를 체인으로 골랐습니다."
+		}
+		notices = append(notices, fmt.Sprintf("다른 발급 경로(교차 서명 등)의 인증서 %d개는 출력에서 제외됩니다. %s",
+			len(alternates), reason))
 	}
 	if len(unrelated) > 0 {
 		notices = append(notices, fmt.Sprintf("체인에 속하지 않는 인증서 %d개는 출력에서 제외됩니다.", len(unrelated)))
@@ -96,7 +114,7 @@ func Resolve(input *ParsedInput) *CertBundle {
 	checkValidity(leaf, chain, &warnings)
 
 	return &CertBundle{Leaf: leaf, Chain: chain, PrivateKey: key, Alternates: alternates, Unrelated: unrelated,
-		Warnings: warnings, Notices: notices}
+		CrossSignedPathAvailable: crossSignedPathAvailable, Warnings: warnings, Notices: notices}
 }
 
 func pickLeaf(certificates []*x509.Certificate, warnings *[]string) *x509.Certificate {
@@ -178,17 +196,23 @@ func findPaths(leaf *x509.Certificate, certificates []*x509.Certificate) []issue
 
 // choosePath 는 브라우저가 고르는 경로에 가깝게, 신뢰된 루트에 더 일찍 닿는 경로 → 루트(자체 서명)로 끝나는 경로 →
 // 서명이 확인된 경로 → 짧은 경로 순으로 고른다. 조건이 같으면 입력 순서상 먼저 찾은 경로.
-func choosePath(paths []issuerPath) issuerPath {
+func choosePath(paths []issuerPath, preferred map[*x509.Certificate]bool) issuerPath {
 	best := paths[0]
 	for _, path := range paths[1:] {
-		if comparePaths(path, best) < 0 {
+		if comparePaths(path, best, preferred) < 0 {
 			best = path
 		}
 	}
 	return best
 }
 
-func comparePaths(a, b issuerPath) int {
+func comparePaths(a, b issuerPath, preferred map[*x509.Certificate]bool) int {
+	if a.passesAny(preferred) != b.passesAny(preferred) {
+		if a.passesAny(preferred) {
+			return -1
+		}
+		return 1
+	}
 	if a.trustedDepth() != b.trustedDepth() {
 		if a.trustedDepth() < b.trustedDepth() {
 			return -1
@@ -221,8 +245,26 @@ func (p issuerPath) trustedDepth() int {
 	return math.MaxInt
 }
 
+func (p issuerPath) passesAny(certificates map[*x509.Certificate]bool) bool {
+	return slices.ContainsFunc(p.chain, func(certificate *x509.Certificate) bool { return certificates[certificate] })
+}
+
 func (p issuerPath) complete() bool {
 	return len(p.chain) > 0 && isSelfSigned(p.chain[len(p.chain)-1])
+}
+
+// crossSignedRoots 는 같은 이름·공개키의 자체 서명 루트가 함께 들어 있는, 다른 CA 가 서명한 루트 인증서를 찾는다
+// (예: AAA Certificate Services 가 서명한 USERTrust RSA CA).
+func crossSignedRoots(certificates []*x509.Certificate) map[*x509.Certificate]bool {
+	result := map[*x509.Certificate]bool{}
+	for _, certificate := range certificates {
+		if !isSelfSigned(certificate) && slices.ContainsFunc(certificates, func(root *x509.Certificate) bool {
+			return isSelfSigned(root) && isCrossSigned(certificate, []*x509.Certificate{root})
+		}) {
+			result[certificate] = true
+		}
+	}
+	return result
 }
 
 // isCrossSigned 는 체인의 인증서와 이름·공개키가 같은, 다른 CA 가 서명한 인증서인지 확인한다.

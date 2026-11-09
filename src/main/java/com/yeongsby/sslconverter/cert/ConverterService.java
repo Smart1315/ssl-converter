@@ -55,8 +55,17 @@ public class ConverterService {
 	 * @param checkRevocation true 면 CA 의 OCSP/CRL 서버에 접속해 폐기 여부를 확인한다
 	 */
 	public Analysis analyze(List<InputSource> sources, char[] password, String alias, boolean checkRevocation) {
+		return analyze(sources, password, alias, checkRevocation, false);
+	}
+
+	/**
+	 * @param checkRevocation true 면 CA 의 OCSP/CRL 서버에 접속해 폐기 여부를 확인한다
+	 * @param crossSignedPath true 면 교차 서명 인증서를 거쳐 옛 루트까지 가는 경로를 체인으로 고른다 (구형 클라이언트 호환)
+	 */
+	public Analysis analyze(List<InputSource> sources, char[] password, String alias, boolean checkRevocation,
+			boolean crossSignedPath) {
 		ParsedInput input = this.parser.parse(sources, password, alias);
-		CertBundle bundle = this.resolver.resolve(input);
+		CertBundle bundle = this.resolver.resolve(input, crossSignedPath);
 		List<String> errors = new ArrayList<>(input.errors());
 		if (bundle == null && errors.isEmpty()) {
 			errors.add(input.sources().isEmpty() ? "인증서 파일을 올리거나 PEM 텍스트를 붙여넣으세요."
@@ -85,7 +94,7 @@ public class ConverterService {
 		if (!input.errors().isEmpty()) {
 			throw new ConversionException(String.join("\n", input.errors()));
 		}
-		CertBundle bundle = this.resolver.resolve(input);
+		CertBundle bundle = this.resolver.resolve(input, options.crossSignedPath());
 		if (bundle == null) {
 			throw new ConversionException("입력에서 인증서를 찾지 못했습니다.");
 		}
@@ -131,7 +140,7 @@ public class ConverterService {
 				throw new ConversionException(NO_PASSWORD_ENCRYPT_KEY);
 			}
 			return new ExportOptions(options.formats(), baseName, alias, new char[0], options.includeRoot(),
-					options.legacyPfx(), keyFormat, false, true);
+					options.legacyPfx(), keyFormat, false, true, options.crossSignedPath());
 		}
 		boolean needsPassword = options.formats().stream().anyMatch(OutputFormat::requiresPassword) || encryptsKeyFile;
 		// 공백만 입력한 비밀번호는 화면에서 빈 칸처럼 보이므로 입력하지 않은 것으로 본다 (앞뒤 공백은 그대로 사용)
@@ -143,7 +152,7 @@ public class ConverterService {
 			throw new ConversionException(NON_ASCII_PASSWORD);
 		}
 		return new ExportOptions(options.formats(), baseName, alias, password, options.includeRoot(),
-				options.legacyPfx(), keyFormat, encryptKey, false);
+				options.legacyPfx(), keyFormat, encryptKey, false, options.crossSignedPath());
 	}
 
 	private static boolean isPrintableAscii(char[] password) {
@@ -226,20 +235,22 @@ public class ConverterService {
 		certificates.add(CertInspector.describe(bundle.leaf(),
 				ChainResolver.isSelfSigned(bundle.leaf()) ? "서버 인증서 (자체 서명)" : "서버 인증서"));
 		for (X509Certificate certificate : bundle.chain()) {
-			certificates.add(CertInspector.describe(certificate,
-					ChainResolver.isSelfSigned(certificate) ? "루트 CA" : "중간 CA"));
+			certificates.add(CertInspector.describe(certificate, ChainResolver.isSelfSigned(certificate) ? "루트 CA"
+					: ChainResolver.isCrossSigned(certificate, bundle.alternates()) ? "교차 서명 CA" : "중간 CA"));
 		}
 		List<CertDetails> alternates = bundle.alternates()
 			.stream()
 			.map((certificate) -> CertInspector.describe(certificate,
-					ChainResolver.isCrossSigned(certificate, bundle.chain()) ? "교차 서명 인증서" : "대체 경로 인증서"))
+					(!ChainResolver.isSelfSigned(certificate) && ChainResolver.isCrossSigned(certificate, bundle.chain()))
+							? "교차 서명 인증서" : "대체 경로 인증서"))
 			.toList();
 		List<CertDetails> unrelated = bundle.unrelated()
 			.stream()
 			.map((certificate) -> CertInspector.describe(certificate, "체인 외 인증서"))
 			.toList();
 		KeyView key = bundle.hasPrivateKey() ? new KeyView(KeyUtils.describe(bundle.privateKey()), true) : null;
-		return new BundleView(certificates, alternates, unrelated, key, bundle.rootIncluded());
+		return new BundleView(certificates, alternates, unrelated, key, bundle.rootIncluded(),
+				bundle.crossSignedPathAvailable());
 	}
 
 	static String suggestedBaseName(X509Certificate leaf) {
@@ -287,8 +298,7 @@ public class ConverterService {
 	 * 인증서, unrelated 는 체인과 상관없는 인증서.
 	 */
 	public record BundleView(List<CertDetails> certificates, List<CertDetails> alternates, List<CertDetails> unrelated,
-			KeyView privateKey,
-			boolean rootIncluded) {
+			KeyView privateKey, boolean rootIncluded, boolean crossSignedPathAvailable) {
 	}
 
 	/**

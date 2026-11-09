@@ -42,8 +42,10 @@ public class ConverterController {
 			@RequestParam(name = "text", required = false) String text,
 			@RequestParam(name = "password", required = false) String password,
 			@RequestParam(name = "alias", required = false) String alias,
-			@RequestParam(name = "checkRevocation", defaultValue = "false") boolean checkRevocation) throws IOException {
-		return this.service.analyze(sources(files, text), chars(password), blankToNull(alias), checkRevocation);
+			@RequestParam(name = "checkRevocation", defaultValue = "false") boolean checkRevocation,
+			@RequestParam(name = "crossSignedPath", defaultValue = "false") boolean crossSignedPath) throws IOException {
+		return this.service.analyze(sources(files, text), chars(password), blankToNull(alias), checkRevocation,
+				crossSignedPath);
 	}
 
 	@PostMapping(path = "/convert", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -59,10 +61,11 @@ public class ConverterController {
 			@RequestParam(name = "legacyPfx", defaultValue = "false") boolean legacyPfx,
 			@RequestParam(name = "keyFormat", defaultValue = "PKCS8") ExportOptions.KeyFormat keyFormat,
 			@RequestParam(name = "encryptKey", defaultValue = "false") boolean encryptKey,
-			@RequestParam(name = "noPassword", defaultValue = "false") boolean noPassword)
+			@RequestParam(name = "noPassword", defaultValue = "false") boolean noPassword,
+			@RequestParam(name = "crossSignedPath", defaultValue = "false") boolean crossSignedPath)
 			throws IOException {
 		ExportOptions options = new ExportOptions(parseFormats(formats), baseName, outAlias, chars(outPassword),
-				includeRoot, legacyPfx, keyFormat, encryptKey, noPassword);
+				includeRoot, legacyPfx, keyFormat, encryptKey, noPassword, crossSignedPath);
 		ExportedFile file = this.service.convert(sources(files, text), chars(password), blankToNull(alias), options)
 			.file();
 		return ResponseEntity.ok()

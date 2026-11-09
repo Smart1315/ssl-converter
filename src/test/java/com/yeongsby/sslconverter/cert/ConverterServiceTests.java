@@ -353,6 +353,24 @@ class ConverterServiceTests {
 		assertThat(analysis.bundle().alternates()).extracting("commonName", "role")
 			.containsExactly(tuple("New Root CA", "교차 서명 인증서"), tuple("Test Root CA", "대체 경로 인증서"));
 		assertThat(analysis.bundle().unrelated()).extracting("commonName").containsExactly("Test Intermediate CA");
+		assertThat(analysis.bundle().crossSignedPathAvailable()).isTrue();
+
+		// 구형 클라이언트 호환 옵션: 교차 서명 인증서를 거쳐 옛 루트까지 잇는다
+		Analysis legacy = this.service.analyze(List.of(source("bundle.pem",
+				TestCertificates.pem(leaf, newRoot, intermediate, rsa.intermediate, crossSigned, rsa.root))), null, null,
+				false, true);
+		assertThat(legacy.bundle().certificates()).extracting("commonName", "role")
+			.containsExactly(tuple("cross.example.com", "서버 인증서"), tuple("New Intermediate CA", "중간 CA"),
+					tuple("New Root CA", "교차 서명 CA"), tuple("Test Root CA", "루트 CA"));
+		assertThat(legacy.bundle().alternates()).extracting("commonName", "role")
+			.containsExactly(tuple("New Root CA", "대체 경로 인증서"));
+
+		ExportOptions options = new ExportOptions(EnumSet.of(OutputFormat.FULLCHAIN_PEM), null, null, null, false,
+				false, ExportOptions.KeyFormat.PKCS8, false, false, true);
+		String fullchain = new String(convert(List.of(source("bundle.pem",
+				TestCertificates.pem(leaf, newRoot, intermediate, crossSigned, rsa.root))), options).data(),
+				StandardCharsets.US_ASCII);
+		assertThat(fullchain.split("BEGIN CERTIFICATE", -1)).hasSize(4);
 	}
 
 	private ExportedFile convert(List<InputSource> sources, ExportOptions options) {

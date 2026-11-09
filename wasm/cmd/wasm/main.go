@@ -23,7 +23,8 @@ func main() {
 	api.Set("analyze", js.FuncOf(func(_ js.Value, args []js.Value) any {
 		request := args[0]
 		return promise(func() (map[string]any, error) {
-			analysis := cert.Analyze(sources(request), str(request, "password"), str(request, "alias"))
+			analysis := cert.AnalyzeWith(sources(request), str(request, "password"), str(request, "alias"),
+				str(request, "crossSignedPath") == "true")
 			encoded, err := json.Marshal(analysis)
 			if err != nil {
 				return nil, err
@@ -105,15 +106,16 @@ func sources(request js.Value) []cert.InputSource {
 
 func exportOptions(request js.Value) (cert.ExportOptions, error) {
 	options := cert.ExportOptions{
-		Formats:     map[string]bool{},
-		BaseName:    str(request, "baseName"),
-		Alias:       str(request, "outAlias"),
-		Password:    str(request, "outPassword"),
-		IncludeRoot: str(request, "includeRoot") != "false",
-		LegacyPfx:   str(request, "legacyPfx") == "true",
-		EncryptKey:  str(request, "encryptKey") == "true",
-		NoPassword:  str(request, "noPassword") == "true",
-		KeyFormat:   cert.KeyFormat(str(request, "keyFormat")),
+		Formats:         map[string]bool{},
+		BaseName:        str(request, "baseName"),
+		Alias:           str(request, "outAlias"),
+		Password:        str(request, "outPassword"),
+		IncludeRoot:     str(request, "includeRoot") != "false",
+		LegacyPfx:       str(request, "legacyPfx") == "true",
+		EncryptKey:      str(request, "encryptKey") == "true",
+		NoPassword:      str(request, "noPassword") == "true",
+		CrossSignedPath: str(request, "crossSignedPath") == "true",
+		KeyFormat:       cert.KeyFormat(str(request, "keyFormat")),
 	}
 	switch options.KeyFormat {
 	case "", cert.KeyPKCS8, cert.KeyTraditional, cert.KeyPKCS8Encrypted:

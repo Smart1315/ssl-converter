@@ -26,6 +26,14 @@ public class ChainResolver {
 	private static final int MAX_PATHS = 64;
 
 	public CertBundle resolve(ParsedInput input) {
+		return resolve(input, false);
+	}
+
+	/**
+	 * @param preferCrossSigned true 면 교차 서명 인증서를 거쳐 옛 루트까지 가는 경로가 있을 때 그 경로를 고른다 (새 루트를 모르는
+	 * 구형 클라이언트 호환)
+	 */
+	public CertBundle resolve(ParsedInput input, boolean preferCrossSigned) {
 		List<X509Certificate> certificates = input.certificates();
 		if (certificates.isEmpty()) {
 			return null;
@@ -60,7 +68,11 @@ public class ChainResolver {
 		}
 
 		List<IssuerPath> paths = findPaths(leaf, certificates);
-		List<X509Certificate> chain = choose(paths).chain();
+		Set<X509Certificate> crossSignedRoots = crossSignedRoots(certificates);
+		boolean crossSignedPathAvailable = paths.stream().anyMatch((path) -> path.passesAny(crossSignedRoots));
+		IssuerPath chosen = choose(paths, preferCrossSigned ? crossSignedRoots : Set.of());
+		boolean crossSignedPathChosen = chosen.passesAny(crossSignedRoots);
+		List<X509Certificate> chain = chosen.chain();
 		Set<X509Certificate> onPaths = new HashSet<>();
 		paths.forEach((path) -> onPaths.addAll(path.chain()));
 		List<X509Certificate> alternates = new ArrayList<>();
@@ -77,8 +89,9 @@ public class ChainResolver {
 			}
 		}
 		if (!alternates.isEmpty()) {
-			notices.add("다른 발급 경로(교차 서명 등)의 인증서 " + alternates.size()
-					+ "개는 출력에서 제외됩니다. 브라우저처럼 신뢰된 루트에 가장 가까운 경로를 체인으로 골랐습니다.");
+			notices.add("다른 발급 경로(교차 서명 등)의 인증서 " + alternates.size() + "개는 출력에서 제외됩니다. "
+					+ (crossSignedPathChosen ? "구형 클라이언트 호환을 위해 교차 서명 인증서를 거치는 경로를 체인으로 골랐습니다."
+							: "브라우저처럼 신뢰된 루트에 가장 가까운 경로를 체인으로 골랐습니다."));
 		}
 		if (!unrelated.isEmpty()) {
 			notices.add("체인에 속하지 않는 인증서 " + unrelated.size() + "개는 출력에서 제외됩니다.");
@@ -98,7 +111,7 @@ public class ChainResolver {
 		}
 		checkValidity(leaf, chain, warnings);
 
-		return new CertBundle(leaf, chain, key, alternates, unrelated, warnings, notices);
+		return new CertBundle(leaf, chain, key, alternates, unrelated, crossSignedPathAvailable, warnings, notices);
 	}
 
 	private X509Certificate pickLeaf(List<X509Certificate> certificates, List<String> warnings) {
@@ -171,13 +184,29 @@ public class ChainResolver {
 	 * 브라우저가 고르는 경로에 가깝게, 신뢰된 루트에 더 일찍 닿는 경로 → 루트(자체 서명)로 끝나는 경로 → 서명이 확인된 경로 → 짧은 경로
 	 * 순으로 고른다. 조건이 같으면 입력 순서상 먼저 찾은 경로.
 	 */
-	private IssuerPath choose(List<IssuerPath> paths) {
+	private IssuerPath choose(List<IssuerPath> paths, Set<X509Certificate> preferred) {
 		return paths.stream()
-			.min(Comparator.comparingInt(IssuerPath::trustedDepth)
+			.min(Comparator.comparing((IssuerPath path) -> !path.passesAny(preferred))
+				.thenComparingInt(IssuerPath::trustedDepth)
 				.thenComparing(IssuerPath::complete, Comparator.reverseOrder())
 				.thenComparingInt(IssuerPath::nameOnlyLinks)
 				.thenComparingInt((path) -> path.chain().size()))
 			.orElseThrow();
+	}
+
+	/**
+	 * 같은 이름·공개키의 자체 서명 루트가 함께 들어 있는, 다른 CA 가 서명한 루트 인증서 (예: AAA Certificate Services 가 서명한
+	 * USERTrust RSA CA).
+	 */
+	private static Set<X509Certificate> crossSignedRoots(List<X509Certificate> certificates) {
+		Set<X509Certificate> result = new HashSet<>();
+		for (X509Certificate certificate : certificates) {
+			if (!isSelfSigned(certificate) && certificates.stream()
+				.anyMatch((root) -> isSelfSigned(root) && isCrossSigned(certificate, List.of(root)))) {
+				result.add(certificate);
+			}
+		}
+		return result;
 	}
 
 	/**
@@ -210,6 +239,10 @@ public class ChainResolver {
 				return this.chain.size();
 			}
 			return Integer.MAX_VALUE;
+		}
+
+		boolean passesAny(Set<X509Certificate> certificates) {
+			return this.chain.stream().anyMatch(certificates::contains);
 		}
 
 		boolean complete() {

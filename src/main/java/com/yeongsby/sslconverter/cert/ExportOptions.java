@@ -14,9 +14,16 @@ import java.util.Set;
  * @param keyFormat 개인키 PEM 형식
  * @param encryptKey 개인키 PEM(.key, 통합 PEM)을 출력 비밀번호로 암호화
  * @param noPassword 출력 비밀번호 없이 생성 (PFX 를 빈 비밀번호로 만든다. JKS 와 개인키 암호화에는 쓸 수 없다)
+ * @param crossSignedPath 교차 서명 인증서를 거쳐 옛 루트까지 가는 경로를 체인으로 사용 (새 루트를 모르는 구형 클라이언트 호환)
  */
 public record ExportOptions(Set<OutputFormat> formats, String baseName, String alias, char[] password,
-		boolean includeRoot, boolean legacyPfx, KeyFormat keyFormat, boolean encryptKey, boolean noPassword) {
+		boolean includeRoot, boolean legacyPfx, KeyFormat keyFormat, boolean encryptKey, boolean noPassword,
+		boolean crossSignedPath) {
+
+	public ExportOptions(Set<OutputFormat> formats, String baseName, String alias, char[] password,
+			boolean includeRoot, boolean legacyPfx, KeyFormat keyFormat, boolean encryptKey, boolean noPassword) {
+		this(formats, baseName, alias, password, includeRoot, legacyPfx, keyFormat, encryptKey, noPassword, false);
+	}
 
 	public ExportOptions(Set<OutputFormat> formats, String baseName, String alias, char[] password,
 			boolean includeRoot, boolean legacyPfx, KeyFormat keyFormat, boolean encryptKey) {

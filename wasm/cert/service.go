@@ -44,6 +44,8 @@ type BundleView struct {
 	Unrelated    []CertDetails `json:"unrelated"`
 	PrivateKey   *KeyView      `json:"privateKey"`
 	RootIncluded bool          `json:"rootIncluded"`
+	// CrossSignedPathAvailable 은 교차 서명 경로를 고를 수 있는지 (화면의 '교차 서명 경로 사용' 옵션 표시 여부)
+	CrossSignedPathAvailable bool `json:"crossSignedPathAvailable"`
 }
 
 // KeyView 는 개인키 정보.
@@ -54,8 +56,13 @@ type KeyView struct {
 
 // Analyze 는 입력을 해석하고 점검한다.
 func Analyze(sources []InputSource, password, alias string) Analysis {
+	return AnalyzeWith(sources, password, alias, false)
+}
+
+// AnalyzeWith 는 crossSignedPath 가 true 면 교차 서명 인증서를 거쳐 옛 루트까지 가는 경로를 체인으로 고른다.
+func AnalyzeWith(sources []InputSource, password, alias string, crossSignedPath bool) Analysis {
 	input := Parse(sources, password, alias)
-	bundle := Resolve(input)
+	bundle := ResolveWith(input, crossSignedPath)
 	errorsList := append([]string{}, input.Errors...)
 	if bundle == nil && len(errorsList) == 0 {
 		if len(input.Sources) == 0 {
@@ -88,7 +95,7 @@ func Convert(sources []InputSource, password, alias string, options ExportOption
 	if len(input.Errors) > 0 {
 		return ExportedFile{}, conversionError(nil, "%s", strings.Join(input.Errors, "\n"))
 	}
-	bundle := Resolve(input)
+	bundle := ResolveWith(input, options.CrossSignedPath)
 	if bundle == nil {
 		return ExportedFile{}, conversionError(nil, "입력에서 인증서를 찾지 못했습니다.")
 	}
@@ -257,15 +264,18 @@ func toView(bundle *CertBundle) BundleView {
 	certificates := []CertDetails{describe(bundle.Leaf, leafRole)}
 	for _, certificate := range bundle.Chain {
 		role := "중간 CA"
-		if isSelfSigned(certificate) {
+		switch {
+		case isSelfSigned(certificate):
 			role = "루트 CA"
+		case isCrossSigned(certificate, bundle.Alternates):
+			role = "교차 서명 CA"
 		}
 		certificates = append(certificates, describe(certificate, role))
 	}
 	alternates := []CertDetails{}
 	for _, certificate := range bundle.Alternates {
 		role := "대체 경로 인증서"
-		if isCrossSigned(certificate, bundle.Chain) {
+		if !isSelfSigned(certificate) && isCrossSigned(certificate, bundle.Chain) {
 			role = "교차 서명 인증서"
 		}
 		alternates = append(alternates, describe(certificate, role))
@@ -279,7 +289,7 @@ func toView(bundle *CertBundle) BundleView {
 		key = &KeyView{Description: describeKey(bundle.PrivateKey), MatchesCertificate: true}
 	}
 	return BundleView{Certificates: certificates, Alternates: alternates, Unrelated: unrelated, PrivateKey: key,
-		RootIncluded: bundle.RootIncluded()}
+		RootIncluded: bundle.RootIncluded(), CrossSignedPathAvailable: bundle.CrossSignedPathAvailable}
 }
 
 func suggestedBaseName(leaf *x509.Certificate) string {

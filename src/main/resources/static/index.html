@@ -98,6 +98,7 @@
 			<label><input id="noPassword" type="checkbox"> 비밀번호 없이 생성 <small>PFX 를 비밀번호 없이(빈 비밀번호) 만듭니다. 개인키가 보호되지 않으니 파일 관리에 주의하세요. JKS 는 지원하지 않습니다</small></label>
 			<label><input id="encryptKey" type="checkbox"> 개인키 파일 암호화 <small>출력 비밀번호로 .key · 통합 PEM 을 암호화합니다. Nginx/Apache 는 시작할 때마다 비밀번호를 물어봅니다</small></label>
 			<label><input id="includeRoot" type="checkbox" checked> 루트 인증서 포함 <small>(입력에 있는 경우)</small></label>
+			<label id="crossSignedField" hidden><input id="crossSignedPath" type="checkbox"> 교차 서명 경로 사용 (구형 클라이언트 호환) <small>새 루트를 모르는 구형 Android · Java · 장비를 위해 교차 서명 인증서를 거쳐 옛 루트까지 잇는 체인을 만듭니다. 최신 브라우저만 쓴다면 필요 없습니다</small></label>
 			<label><input id="legacyPfx" type="checkbox"> PFX 레거시 암호화 (3DES/SHA1) <small>Windows Server 2016 이하 · 구형 Java 에서 가져오기 실패 시</small></label>
 		</div>
 

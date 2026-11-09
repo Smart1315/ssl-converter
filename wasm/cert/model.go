@@ -98,8 +98,10 @@ type CertBundle struct {
 	PrivateKey crypto.Signer
 	Alternates []*x509.Certificate // 고르지 않은 다른 발급 경로(교차 서명 등)의 인증서. 출력에서 제외된다
 	Unrelated  []*x509.Certificate
-	Warnings   []string
-	Notices    []string
+	// CrossSignedPathAvailable 은 교차 서명 인증서를 거쳐 옛 루트까지 가는 경로를 고를 수 있는지
+	CrossSignedPathAvailable bool
+	Warnings                 []string
+	Notices                  []string
 }
 
 func (b *CertBundle) HasPrivateKey() bool { return b.PrivateKey != nil }
@@ -146,6 +148,8 @@ type ExportOptions struct {
 	KeyFormat   KeyFormat
 	EncryptKey  bool // 개인키 PEM(.key, 통합 PEM)을 출력 비밀번호로 암호화
 	NoPassword  bool // 출력 비밀번호 없이 생성 (PFX 를 빈 비밀번호로 만든다. JKS 와 개인키 암호화에는 쓸 수 없다)
+	// CrossSignedPath 는 교차 서명 인증서를 거쳐 옛 루트까지 가는 경로를 체인으로 사용 (새 루트를 모르는 구형 클라이언트 호환)
+	CrossSignedPath bool
 }
 
 // OutputFormat 은 생성 가능한 출력 형식. FilePattern 의 %s 는 기본 파일명으로 치환된다.

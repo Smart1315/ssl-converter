@@ -67,6 +67,8 @@ function inputFormData() {
 	if (pw) fd.append('password', pw);
 	const alias = $('aliasField').hidden ? '' : $('inAlias').value;
 	if (alias) fd.append('alias', alias);
+	// 체인 선택에 쓰이므로 분석과 변환 모두에 보낸다
+	if ($('crossSignedPath').checked) fd.append('crossSignedPath', 'true');
 	return fd;
 }
 
@@ -163,6 +165,9 @@ function renderAnalysis(a) {
 	const excluded = (title, list) => list && list.length
 		? `<h3 class="muted" style="font-size:13px;margin:14px 0 6px">${title}</h3>${list.map((c) => certCard(c, false, '')).join('')}`
 		: '';
+	// 교차 서명 경로를 고를 수 있는 입력일 때만 옵션을 보인다
+	$('crossSignedField').hidden = !b.crossSignedPathAvailable;
+	if (!b.crossSignedPathAvailable) $('crossSignedPath').checked = false;
 	$('unrelated').innerHTML = excluded('다른 발급 경로의 인증서 (교차 서명 등, 출력 제외)', b.alternates)
 		+ excluded('체인에 속하지 않는 인증서 (출력 제외)', b.unrelated);
 
@@ -464,6 +469,7 @@ function init() {
 	$('inPassword').addEventListener('input', () => scheduleAnalyze(600));
 	$('inAlias').addEventListener('change', () => scheduleAnalyze(0));
 	$('checkRevocation').addEventListener('change', () => scheduleAnalyze(0));
+	$('crossSignedPath').addEventListener('change', () => scheduleAnalyze(0));
 
 	$('chain').addEventListener('click', toggleCert);
 	$('unrelated').addEventListener('click', toggleCert);

@@ -538,4 +538,28 @@ func TestCrossSignedCertificatesAreSeparatedFromUnrelated(t *testing.T) {
 	if got := describeAll(view.Unrelated); got != "Test Intermediate CA/체인 외 인증서" {
 		t.Errorf("체인 외: %s", got)
 	}
+	if !view.CrossSignedPathAvailable {
+		t.Error("교차 서명 경로를 고를 수 있어야 합니다")
+	}
+
+	// 구형 클라이언트 호환 옵션: 교차 서명 인증서를 거쳐 옛 루트까지 잇는다
+	analysis = AnalyzeWith([]InputSource{text("bundle.pem",
+		pemOf(t, leaf, newRoot, intermediate, c.intermediate, crossSigned, c.root))}, "", "", true)
+	view = analysis.Bundle
+	if got := describeAll(view.Certificates); got != "cross.example.com/서버 인증서, New Intermediate CA/중간 CA, New Root CA/교차 서명 CA, Test Root CA/루트 CA" {
+		t.Errorf("교차 서명 체인: %s", got)
+	}
+	if got := describeAll(view.Alternates); got != "New Root CA/대체 경로 인증서" {
+		t.Errorf("교차 서명 체인의 대체 경로: %s", got)
+	}
+	opts := options("changeit", FormatFullchainPem)
+	opts.CrossSignedPath, opts.IncludeRoot = true, false
+	file, err := Convert([]InputSource{text("bundle.pem", pemOf(t, leaf, newRoot, intermediate, crossSigned, c.root))},
+		"", "", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(file.Data), "BEGIN CERTIFICATE"); got != 3 {
+		t.Errorf("루트를 뺀 교차 서명 fullchain 인증서 수 = %d, 기대 3", got)
+	}
 }
