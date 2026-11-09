@@ -462,3 +462,44 @@ func TestKeyEncryptionIsSelectableForEachKeyFormat(t *testing.T) {
 		t.Errorf("PKCS8_ENCRYPTED: %v", err)
 	}
 }
+
+func TestPfxCanBeCreatedWithoutPassword(t *testing.T) {
+	c := newTestChain(t, false, "example.com")
+	sources := []InputSource{text("all.pem", pemOf(t, c.leaf, c.intermediate, c.leafKey))}
+	for _, legacy := range []bool{false, true} {
+		// 입력된 출력 비밀번호는 무시한다
+		opts := options("changeit", FormatPfx)
+		opts.LegacyPfx, opts.NoPassword = legacy, true
+		file, err := Convert(sources, "", "", opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		analysis := convertBack(t, file, "")
+		if analysis.Bundle == nil || analysis.Bundle.PrivateKey == nil {
+			t.Errorf("legacy=%v: 비밀번호 없이 다시 읽은 PFX 에 개인키가 없습니다", legacy)
+		}
+	}
+	// PEM 과 함께 고르면 개인키는 암호화하지 않은 채로 ZIP 에 들어간다
+	opts := options("", FormatPfx, FormatKeyPem)
+	opts.NoPassword = true
+	if file, err := Convert(sources, "", "", opts); err != nil || !strings.HasSuffix(file.FileName, ".zip") {
+		t.Errorf("PFX + 개인키: %v", err)
+	}
+}
+
+func TestNoPasswordRejectsJksAndKeyEncryption(t *testing.T) {
+	c := newTestChain(t, false, "example.com")
+	sources := []InputSource{text("all.pem", pemOf(t, c.leaf, c.intermediate, c.leafKey))}
+	for _, format := range []OutputFormat{FormatJks, FormatTruststoreJks} {
+		opts := options("", FormatPfx, format)
+		opts.NoPassword = true
+		if _, err := Convert(sources, "", "", opts); err == nil || err.Error() != noPasswordJks {
+			t.Errorf("%s: %v", format.ID, err)
+		}
+	}
+	opts := options("", FormatKeyPem)
+	opts.NoPassword, opts.EncryptKey = true, true
+	if _, err := Convert(sources, "", "", opts); err == nil || err.Error() != noPasswordEncryptKey {
+		t.Errorf("개인키 암호화: %v", err)
+	}
+}

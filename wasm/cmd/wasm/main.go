@@ -112,6 +112,7 @@ func exportOptions(request js.Value) (cert.ExportOptions, error) {
 		IncludeRoot: str(request, "includeRoot") != "false",
 		LegacyPfx:   str(request, "legacyPfx") == "true",
 		EncryptKey:  str(request, "encryptKey") == "true",
+		NoPassword:  str(request, "noPassword") == "true",
 		KeyFormat:   cert.KeyFormat(str(request, "keyFormat")),
 	}
 	switch options.KeyFormat {

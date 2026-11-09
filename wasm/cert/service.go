@@ -17,6 +17,12 @@ const noKeyWarning = "개인키가 입력되지 않았습니다. 서버에 설�
 const nonASCIIPassword = "출력 비밀번호에는 영문, 숫자, 기호(ASCII)만 사용할 수 있습니다. " +
 	"한글 등이 들어간 비밀번호로 만든 PFX 는 Java(keytool, Tomcat 등)에서 열 수 없습니다."
 
+const noPasswordJks = "JKS/트러스트스토어는 비밀번호 없이 만들 수 없습니다. " +
+	"'비밀번호 없이 생성'을 끄고 출력 비밀번호를 입력하세요."
+
+const noPasswordEncryptKey = "'개인키 파일 암호화'는 비밀번호가 있어야 합니다. " +
+	"'비밀번호 없이 생성'과 함께 쓸 수 없습니다."
+
 // Analysis 는 분석 결과 (웹 화면 표시용).
 type Analysis struct {
 	Sources           []SourceSummary `json:"sources"`
@@ -126,7 +132,19 @@ func withDefaults(options ExportOptions, bundle *CertBundle) (ExportOptions, err
 	case KeyPKCS8Encrypted:
 		options.KeyFormat, options.EncryptKey = KeyPKCS8, true
 	}
-	needsPassword := options.EncryptKey && (options.Formats[FormatKeyPem.ID] || options.Formats[FormatCombinedPem.ID])
+	encryptsKeyFile := options.EncryptKey && (options.Formats[FormatKeyPem.ID] || options.Formats[FormatCombinedPem.ID])
+	if options.NoPassword {
+		// keytool/Tomcat 은 비밀번호 없는 JKS 를 제대로 다루지 못하고, 암호화 키는 비밀번호가 있어야 의미가 있다
+		if options.Formats[FormatJks.ID] || options.Formats[FormatTruststoreJks.ID] {
+			return options, conversionError(nil, noPasswordJks)
+		}
+		if encryptsKeyFile {
+			return options, conversionError(nil, noPasswordEncryptKey)
+		}
+		options.Password, options.EncryptKey = "", false
+		return options, nil
+	}
+	needsPassword := encryptsKeyFile
 	for _, format := range OutputFormats {
 		needsPassword = needsPassword || (options.Formats[format.ID] && format.RequiresPassword)
 	}
@@ -187,6 +205,9 @@ func summary(files []ExportedFile, skipped []string, bundle *CertBundle, options
 	line("루트 인증서 포함: %s", yesNo[options.IncludeRoot])
 	line("PFX 암호화: %s", pfxMode[options.LegacyPfx])
 	line("개인키 파일 암호화: %s", map[bool]string{true: "예 (출력 비밀번호)", false: "아니오"}[options.EncryptKey])
+	if options.NoPassword {
+		line("출력 비밀번호: 없음 (PFX 를 열 때 비밀번호 칸을 비워 두세요)")
+	}
 	line("※ 비밀번호는 이 파일에 기록하지 않습니다.")
 	if !bundle.HasPrivateKey() {
 		line("※ 개인키 없음: PFX/JKS 에는 인증서만 들어 있어 서버 인증서로 사용할 수 없습니다.")

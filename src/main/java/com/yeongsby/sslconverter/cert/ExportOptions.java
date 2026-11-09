@@ -13,9 +13,15 @@ import java.util.Set;
  * @param legacyPfx PFX 를 3DES/SHA1 로 암호화 (Windows Server 2016 이하, 구형 Java 호환)
  * @param keyFormat 개인키 PEM 형식
  * @param encryptKey 개인키 PEM(.key, 통합 PEM)을 출력 비밀번호로 암호화
+ * @param noPassword 출력 비밀번호 없이 생성 (PFX 를 빈 비밀번호로 만든다. JKS 와 개인키 암호화에는 쓸 수 없다)
  */
 public record ExportOptions(Set<OutputFormat> formats, String baseName, String alias, char[] password,
-		boolean includeRoot, boolean legacyPfx, KeyFormat keyFormat, boolean encryptKey) {
+		boolean includeRoot, boolean legacyPfx, KeyFormat keyFormat, boolean encryptKey, boolean noPassword) {
+
+	public ExportOptions(Set<OutputFormat> formats, String baseName, String alias, char[] password,
+			boolean includeRoot, boolean legacyPfx, KeyFormat keyFormat, boolean encryptKey) {
+		this(formats, baseName, alias, password, includeRoot, legacyPfx, keyFormat, encryptKey, false);
+	}
 
 	/**
 	 * 개인키를 암호화하지 않는 옵션. {@link KeyFormat#PKCS8_ENCRYPTED} 를 주면 암호화한다.

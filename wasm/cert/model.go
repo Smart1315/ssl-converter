@@ -144,6 +144,7 @@ type ExportOptions struct {
 	LegacyPfx   bool // PFX 를 3DES/SHA1 로 암호화 (Windows Server 2016 이하, 구형 Java 호환)
 	KeyFormat   KeyFormat
 	EncryptKey  bool // 개인키 PEM(.key, 통합 PEM)을 출력 비밀번호로 암호화
+	NoPassword  bool // 출력 비밀번호 없이 생성 (PFX 를 빈 비밀번호로 만든다. JKS 와 개인키 암호화에는 쓸 수 없다)
 }
 
 // OutputFormat 은 생성 가능한 출력 형식. FilePattern 의 %s 는 기본 파일명으로 치환된다.

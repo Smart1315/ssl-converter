@@ -274,13 +274,25 @@ function updateFormatAvailability() {
 
 function updateDownloadInfo() {
 	const sel = selectedFormats();
-	const needPw = sel.some((id) => FORMATS.find((f) => f.id === id).pw)
-		|| ($('encryptKey').checked && (sel.includes('KEY_PEM') || sel.includes('COMBINED_PEM')));
-	const outPw = $('outPassword').value;
-	const nonAscii = /[^\x20-\x7E]/.test(outPw);
-	$('pwHint').textContent = nonAscii ? '영문, 숫자, 기호만 사용할 수 있습니다 (한글 불가)'
-		: needPw ? '필수 · JKS 는 6자 이상 권장' : 'PFX/JKS/암호화 키에 사용';
-	$('pwHint').style.color = nonAscii || (needPw && !outPw.trim()) ? 'var(--err)' : '';
+	// '비밀번호 없이 생성' 이면 출력 비밀번호와 개인키 암호화를 쓰지 않는다
+	const noPw = $('noPassword').checked;
+	$('outPassword').disabled = noPw;
+	$('encryptKey').disabled = noPw;
+	if (noPw) $('encryptKey').checked = false;
+	const hint = $('pwHint');
+	if (noPw) {
+		const jks = sel.some((id) => id === 'JKS' || id === 'TRUSTSTORE_JKS');
+		hint.textContent = jks ? 'JKS 는 비밀번호 없이 만들 수 없습니다' : '사용 안 함 (비밀번호 없이 생성)';
+		hint.style.color = jks ? 'var(--err)' : '';
+	} else {
+		const needPw = sel.some((id) => FORMATS.find((f) => f.id === id).pw)
+			|| ($('encryptKey').checked && (sel.includes('KEY_PEM') || sel.includes('COMBINED_PEM')));
+		const outPw = $('outPassword').value;
+		const nonAscii = /[^\x20-\x7E]/.test(outPw);
+		hint.textContent = nonAscii ? '영문, 숫자, 기호만 사용할 수 있습니다 (한글 불가)'
+			: needPw ? '필수 · JKS 는 6자 이상 권장' : 'PFX/JKS/암호화 키에 사용';
+		hint.style.color = nonAscii || (needPw && !outPw.trim()) ? 'var(--err)' : '';
+	}
 	$('downloadInfo').textContent = sel.length === 0 ? '형식을 선택하세요'
 		: sel.length === 1 ? '파일 1개 다운로드' : `${sel.length}개 파일을 ZIP 으로 다운로드`;
 	$('downloadBtn').disabled = sel.length === 0;
@@ -292,7 +304,8 @@ async function download() {
 	const sel = selectedFormats();
 	const errBox = $('convertError');
 	errBox.hidden = true;
-	const pw = $('outPassword').value;
+	const noPw = $('noPassword').checked;
+	const pw = noPw ? '' : $('outPassword').value;
 	if (pw && pw.length < 6 && sel.includes('JKS')
 		&& !confirm('JKS 비밀번호가 6자 미만이면 keytool/Tomcat 에서 거부될 수 있습니다. 계속할까요?')) {
 		return;
@@ -306,6 +319,7 @@ async function download() {
 	fd.append('legacyPfx', $('legacyPfx').checked);
 	fd.append('keyFormat', $('keyFormat').value);
 	fd.append('encryptKey', $('encryptKey').checked);
+	if (noPw) fd.append('noPassword', 'true');
 
 	const btn = $('downloadBtn');
 	btn.disabled = true;
@@ -462,6 +476,7 @@ function init() {
 	$('formats').addEventListener('change', updateDownloadInfo);
 	$('keyFormat').addEventListener('change', updateDownloadInfo);
 	$('encryptKey').addEventListener('change', updateDownloadInfo);
+	$('noPassword').addEventListener('change', updateDownloadInfo);
 	$('outPassword').addEventListener('input', updateDownloadInfo);
 	$('baseName').addEventListener('input', () => { state.baseNameTouched = true; updateFileNames(); });
 	$('outAlias').addEventListener('input', () => { state.aliasTouched = true; renderGuide(); });

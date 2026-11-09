@@ -96,8 +96,8 @@ docker run --rm --platform linux/arm64 -p 127.0.0.1:8080:8080 ssl-converter:late
 | 개인키 PEM | `{이름}.key` | PKCS#8 또는 전통 형식(RSA/EC). **기본은 암호화하지 않으며**, '개인키 파일 암호화'를 켜면 출력 비밀번호로 암호화합니다 (PKCS#8 은 AES-256, 전통 형식은 `openssl rsa -aes256` 과 같은 DEK-Info) |
 | 서버 인증서 PEM | `{이름}.crt` | Apache `SSLCertificateFile` |
 | 체인 PEM | `{이름}_chain.crt` | Apache `SSLCertificateChainFile` |
-| PFX | `{이름}.pfx` | IIS, Windows, Tomcat, Spring Boot. 기본은 AES-256이며, 구형 Windows/Java용 **레거시(3DES/SHA1)** 옵션이 있습니다 |
-| JKS | `{이름}.jks` | Tomcat, WebLogic, JEUS |
+| PFX | `{이름}.pfx` | IIS, Windows, Tomcat, Spring Boot. 기본은 AES-256이며, 구형 Windows/Java용 **레거시(3DES/SHA1)** 옵션이 있습니다. '비밀번호 없이 생성'을 켜면 빈 비밀번호로 만듭니다 (`openssl pkcs12 -passout pass:` 과 같음, 열 때 비밀번호 칸을 비워 둠) |
+| JKS | `{이름}.jks` | Tomcat, WebLogic, JEUS. 비밀번호가 필요합니다 ('비밀번호 없이 생성' 불가) |
 | 통합 PEM | `{이름}_combined.pem` | HAProxy (키와 풀체인을 한 파일에) |
 | P7B | `{이름}.p7b` | Windows 인증서 가져오기 |
 | DER | `{이름}.cer` | 바이너리 인증서 |
@@ -149,4 +149,4 @@ curl -o out.zip -F files=@ssl.crt -F files=@chain.crt -F files=@ssl.key \
 | `checkRevocation` (분석 전용, 기본 false) | OCSP/CRL 온라인 폐기 확인 |
 | `formats` | `FULLCHAIN_PEM` `CERT_PEM` `CHAIN_PEM` `KEY_PEM` `COMBINED_PEM` `PFX` `JKS` `TRUSTSTORE_JKS` `P7B` `DER` |
 | `baseName`, `outAlias`, `outPassword` | 출력 파일명, 별칭, 비밀번호 (영문·숫자·기호만 가능. 한글 등은 Java 에서 PFX 를 열 수 없어 거부합니다) |
-| `includeRoot` (기본 true), `legacyPfx` (기본 false), `keyFormat` (`PKCS8` / `TRADITIONAL`), `encryptKey` (기본 false) | 출력 옵션. 이전의 `keyFormat=PKCS8_ENCRYPTED` 는 `PKCS8` + `encryptKey=true` 와 같습니다 |
+| `includeRoot` (기본 true), `legacyPfx` (기본 false), `keyFormat` (`PKCS8` / `TRADITIONAL`), `encryptKey` (기본 false), `noPassword` (기본 false) | 출력 옵션. `noPassword=true` 이면 `outPassword` 를 무시하고 PFX 를 빈 비밀번호로 만듭니다 (JKS·트러스트스토어·`encryptKey` 와 함께 쓸 수 없음). 이전의 `keyFormat=PKCS8_ENCRYPTED` 는 `PKCS8` + `encryptKey=true` 와 같습니다 |

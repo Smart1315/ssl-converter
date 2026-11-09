@@ -283,6 +283,45 @@ class ConverterServiceTests {
 		assertThat(this.service.convert(sources, null, null, pemOnly).file().data()).isNotEmpty();
 	}
 
+	@Test
+	void pfxCanBeCreatedWithoutPassword() throws Exception {
+		List<InputSource> sources = List.of(
+				source("ssl.pem", TestCertificates.pem(rsa.leaf, rsa.intermediate, rsa.leafKey.getPrivate())));
+		for (boolean legacy : new boolean[] { false, true }) {
+			// 입력된 출력 비밀번호는 무시한다
+			ExportOptions options = new ExportOptions(EnumSet.of(OutputFormat.PFX), null, null, PASSWORD, true, legacy,
+					ExportOptions.KeyFormat.PKCS8, false, true);
+			byte[] pfx = convert(sources, options).data();
+			KeyStore keyStore = KeyStore.getInstance("PKCS12");
+			keyStore.load(new ByteArrayInputStream(pfx), new char[0]);
+			assertThat(keyStore.getKey("example.com", new char[0])).isInstanceOf(PrivateKey.class);
+			assertThat(keyStore.getCertificateChain("example.com")).hasSize(2);
+
+			// 비밀번호 없이 다시 읽을 수 있어야 한다
+			Analysis analysis = this.service.analyze(List.of(new InputSource("out.pfx", pfx)), null, null);
+			assertThat(analysis.errors()).isEmpty();
+			assertThat(analysis.bundle().privateKey()).isNotNull();
+		}
+		// PEM 과 함께 고르면 개인키는 암호화하지 않은 채로 ZIP 에 들어간다
+		ExportOptions withPem = new ExportOptions(EnumSet.of(OutputFormat.PFX, OutputFormat.KEY_PEM), null, null, null,
+				true, false, ExportOptions.KeyFormat.PKCS8, false, true);
+		assertThat(convert(sources, withPem).fileName()).endsWith(".zip");
+	}
+
+	@Test
+	void noPasswordRejectsJksAndKeyEncryption() throws Exception {
+		List<InputSource> sources = List.of(
+				source("ssl.pem", TestCertificates.pem(rsa.leaf, rsa.intermediate, rsa.leafKey.getPrivate())));
+		for (OutputFormat format : List.of(OutputFormat.JKS, OutputFormat.TRUSTSTORE_JKS)) {
+			ExportOptions options = new ExportOptions(EnumSet.of(OutputFormat.PFX, format), null, null, null, true,
+					false, ExportOptions.KeyFormat.PKCS8, false, true);
+			assertThatThrownBy(() -> convert(sources, options)).hasMessage(ConverterService.NO_PASSWORD_JKS);
+		}
+		ExportOptions encrypted = new ExportOptions(EnumSet.of(OutputFormat.KEY_PEM), null, null, null, true, false,
+				ExportOptions.KeyFormat.PKCS8, true, true);
+		assertThatThrownBy(() -> convert(sources, encrypted)).hasMessage(ConverterService.NO_PASSWORD_ENCRYPT_KEY);
+	}
+
 	private ExportedFile convert(List<InputSource> sources, ExportOptions options) {
 		return this.service.convert(sources, PASSWORD, null, options).file();
 	}
