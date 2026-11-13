@@ -31,10 +31,13 @@ if ($AssetsOnly) {
 	}
 }
 Copy-Item (Join-Path (go env GOROOT) 'lib\wasm\wasm_exec.js') dist
-Copy-Item web\bridge.js, web\worker.js, "$static\app.js", "$static\style.css" dist
+Copy-Item web\bridge.js, web\worker.js, "$static\app.js", "$static\tools.js", "$static\style.css" dist
 # app.js 보다 먼저 bridge.js 를 불러와 서버 API 대신 WebAssembly 로 처리하게 한다
 (Get-Content "$static\index.html" -Raw -Encoding utf8).Replace('<script src="app.js"></script>',
 	"<script src=`"bridge.js`"></script>`n<script src=`"app.js`"></script>") |
 	Set-Content dist\index.html -Encoding utf8 -NoNewline
+(Get-Content "$static\tools.html" -Raw -Encoding utf8).Replace('<script src="tools.js"></script>',
+	"<script src=`"bridge.js`"></script>`n<script src=`"tools.js`"></script>") |
+	Set-Content dist\tools.html -Encoding utf8 -NoNewline
 
 Get-ChildItem dist

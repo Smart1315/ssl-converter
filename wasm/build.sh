@@ -11,9 +11,11 @@ mkdir -p dist
 
 GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o dist/sslconverter.wasm ./cmd/wasm
 cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" dist/
-cp web/bridge.js web/worker.js "$static/app.js" "$static/style.css" dist/
+cp web/bridge.js web/worker.js "$static/app.js" "$static/tools.js" "$static/style.css" dist/
 # app.js 보다 먼저 bridge.js 를 불러와 서버 API 대신 WebAssembly 로 처리하게 한다
 sed 's#<script src="app.js"></script>#<script src="bridge.js"></script>\n<script src="app.js"></script>#' \
 	"$static/index.html" > dist/index.html
+sed 's#<script src="tools.js"></script>#<script src="bridge.js"></script>\n<script src="tools.js"></script>#' \
+	"$static/tools.html" > dist/tools.html
 
 ls -l dist

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ko">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>PKI 도구 | SSL Converter</title>
+	<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+	<div class="wrap">
+		<h1>PKI 도구</h1>
+		<p>CSR, 인증서, 폐기 응답, CMS 서명을 브라우저 또는 서버에서 처리합니다.</p>
+		<nav class="tool-nav"><a href="index.html">인증서 변환기로 돌아가기</a></nav>
+	</div>
+</header>
+<main class="wrap">
+	<div id="tool-tabs" class="tabs" role="tablist" aria-label="PKI 도구"></div>
+	<section class="card">
+		<h2 id="tool-title"></h2>
+		<p id="tool-description" class="hint"></p>
+		<div id="tool-warning" class="msg warn" hidden></div>
+		<form id="tool-form"></form>
+	</section>
+	<section id="tool-output" class="card" hidden aria-live="polite"></section>
+</main>
+<script src="tools.js"></script>
+</body>
+</html>

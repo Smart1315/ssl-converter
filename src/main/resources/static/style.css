@@ -183,10 +183,24 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.tool-nav { margin-top: 8px; }
+.tool-nav a { color: var(--accent); }
+.tool-field textarea { min-height: 84px; }
+.tool-result-section { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 10px; }
+.tool-result-section h3 { margin: 0 0 8px; font-size: 15px; }
+.tool-result-section dl { display: grid; grid-template-columns: minmax(120px, 190px) 1fr; gap: 5px 12px; margin: 0; }
+.tool-result-section dt { color: var(--muted); }
+.tool-result-section dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.asn1-tree, .asn1-tree ul { list-style: none; margin: 0; padding-left: 18px; }
+.asn1-tree { padding-left: 0; }
+.asn1-tree li { border-left: 1px solid var(--line); padding: 2px 0 2px 10px; overflow-wrap: anywhere; }
+.tool-result-section button { margin-top: 8px; }
+
 @media (max-width: 600px) {
 	.card { padding: 14px; }
 	.cert dl { grid-template-columns: 1fr; }
 	.check { grid-template-columns: 22px 1fr; }
 	.check .detail { grid-column: 2; }
 	.formats { grid-template-columns: 1fr; }
+	.tool-result-section dl { grid-template-columns: 1fr; gap: 0; }
 }

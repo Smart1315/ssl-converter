@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"sslconverter/cert"
+	ssltools "sslconverter/tools"
 )
 
 func main() {
@@ -49,8 +50,53 @@ func main() {
 				"contentType": file.ContentType, "data": data}, nil
 		})
 	}))
+	api.Set("tools", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		request := args[0]
+		return promise(func() (map[string]any, error) {
+			fields, uploads := toolRequest(request)
+			result, err := ssltools.Execute(str(request, "tool"), fields, uploads)
+			if err != nil {
+				return nil, &cert.ConversionError{Message: err.Error()}
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"ok": true, "status": 200, "json": string(encoded)}, nil
+		})
+	}))
 	js.Global().Set("sslConverter", api)
 	select {}
+}
+
+func toolRequest(request js.Value) (map[string]string, map[string][]cert.InputSource) {
+	fields := map[string]string{}
+	uploads := map[string][]cert.InputSource{}
+	keys := js.Global().Get("Object").Call("keys", request)
+	for i := 0; i < keys.Length(); i++ {
+		name := keys.Index(i).String()
+		if name == "tool" {
+			continue
+		}
+		value := request.Get(name)
+		if value.Type() == js.TypeObject && !value.IsNull() && value.Get("length").Type() == js.TypeNumber {
+			for j := 0; j < value.Length(); j++ {
+				file := value.Index(j)
+				fileName := file.Get("name").String()
+				if fileName == "" {
+					continue
+				}
+				data := make([]byte, file.Get("data").Length())
+				js.CopyBytesToGo(data, file.Get("data"))
+				uploads[name] = append(uploads[name], cert.InputSource{Name: fileName, Data: data})
+			}
+			continue
+		}
+		if !value.IsUndefined() && !value.IsNull() {
+			fields[name] = value.String()
+		}
+	}
+	return fields, uploads
 }
 
 // promise 는 work 를 고루틴에서 실행하고, 패닉이 나도 오류 응답으로 바꿔 돌려준다.

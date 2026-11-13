@@ -1,6 +1,7 @@
 // 브라우저 전용(WebAssembly) 판에서 app.js 의 서버 API 호출을 대신한다.
 // app.js 는 window.sslApiFetch 가 있으면 fetch 대신 사용하며, 이 함수는 서버 API 와 같은 fetch Response 를 돌려준다.
 (() => {
+	window.sslWasm = true;
 	// 폐기 여부(OCSP/CRL) 확인은 CA 서버가 CORS 를 허용하지 않아 브라우저에서 할 수 없으므로 옵션을 숨긴다
 	const revocation = document.getElementById('checkRevocation');
 	if (revocation) {
@@ -34,11 +35,14 @@
 	}
 
 	async function toRequest(formData) {
-		const request = { files: [], formats: [] };
+		const request = {};
 		for (const [key, value] of formData.entries()) {
-			if (key === 'files') {
-				request.files.push({ name: value.name, data: new Uint8Array(await value.arrayBuffer()) });
+			if (value instanceof File) {
+				if (!value.name) continue;
+				if (!request[key]) request[key] = [];
+				request[key].push({ name: value.name, data: new Uint8Array(await value.arrayBuffer()) });
 			} else if (key === 'formats') {
+				if (!request.formats) request.formats = [];
 				request.formats.push(value);
 			} else {
 				request[key] = String(value);
@@ -52,10 +56,14 @@
 	}
 
 	window.sslApiFetch = async (url, init) => {
-		const op = url.endsWith('analyze') ? 'analyze' : 'convert';
-		const result = await call(op, await toRequest(init.body));
+		const path = new URL(url, window.location.href).pathname;
+		const toolMatch = path.match(/\/api\/tools\/([^/]+)$/);
+		const op = toolMatch ? 'tools' : (path.endsWith('/analyze') ? 'analyze' : 'convert');
+		const request = await toRequest(init.body);
+		if (toolMatch) request.tool = decodeURIComponent(toolMatch[1]);
+		const result = await call(op, request);
 		if (!result.ok) return json({ message: result.message }, result.status);
-		if (op === 'analyze') {
+		if (op === 'analyze' || op === 'tools') {
 			return new Response(result.json, { status: 200, headers: { 'Content-Type': 'application/json' } });
 		}
 		return new Response(new Blob([result.data], { type: result.contentType }), {
