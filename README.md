@@ -1,6 +1,6 @@
 # SSL 인증서 변환기
 
-Spring Boot 기반 웹 애플리케이션입니다. SSL 인증서를 PEM · CRT · KEY · PFX(P12) · JKS · P7B · DER 형식 사이에서 변환합니다.
+Spring Boot 기반 웹 애플리케이션입니다. SSL 인증서를 PEM · CRT · KEY · PFX(P12) · JKS · P7B · DER 형식 사이에서 변환하고, CSR/인증서 발급, PKI 분석 도구를 제공합니다.
 OpenSSL이나 keytool 없이 Java(BouncyCastle)만으로 동작하며, 업로드한 파일은 메모리에서만 처리하고 서버에 저장하지 않습니다.
 
 테스트 주소: https://tool.yeongsby.com/ssl-converter
@@ -129,6 +129,35 @@ docker run --rm --platform linux/arm64 -p 127.0.0.1:8080:8080 ssl-converter:late
   - 사내 CA의 OCSP가 내부망에 있다면 `ssl-converter.revocation.allow-private-addresses=true`로 허용할 수 있습니다
   - Docker에서는 환경변수 `SSL_CONVERTER_REVOCATION_ALLOW_PRIVATE_ADDRESSES=true`로 지정합니다
 
+## PKI 도구
+
+변환 화면 상단의 **CSR · PKI 도구** 링크(`tools.html`)에서 쓸 수 있습니다. 탭마다 파일 업로드와 PEM 붙여넣기를 함께 지원하며, 결과 파일은 화면에서 바로 복사하거나 내려받습니다.
+
+| 탭 (`tool`) | 기능 | 결과 |
+|---|---|---|
+| 자체 서명 인증서 / 사설 CA (`self-signed`) | RSA(2048/3072/4096) 또는 ECDSA P-256 키로 자체 서명 서버 인증서나 사설 루트 CA를 만듭니다. 유효기간 365일. 서버 인증서에는 SAN, `serverAuth` EKU를, CA에는 `keyCertSign`·`cRLSign`을 넣습니다 | `certificate.pem`, `private-key.pem` |
+| CSR 및 키 생성 (`csr`) | CN, SAN(DNS/IP, 쉼표로 구분), 키 알고리즘을 정해 CSR과 개인키를 만듭니다 | `request.csr`, `private-key.pem` |
+| CSR 디코딩 (`csr-decode`) | CSR의 주체, 공개키 알고리즘, SAN을 보여주고 요청 서명을 검증합니다 | 정보 표 |
+| 사설 CA 발급 (`issue`) | CA 인증서와 CA 개인키로 CSR에 서명합니다. 유효기간 1~825일 | `issued-certificate.pem` |
+| 짝 확인 (`match`) | 인증서 ↔ 개인키, 인증서 ↔ CSR의 공개키가 같은지 확인합니다 | 일치/불일치 |
+| CRL 보기 (`crl`) | 발급자, 발급일, 다음 갱신, 폐기 일련번호(처음 100개)를 보여줍니다. 발급자 인증서를 넣으면 CRL 서명도 검증합니다 | 정보 표 |
+| OCSP 응답 해석 (`ocsp`) | 응답 상태, 응답자, 인증서별 상태를 보여줍니다. 응답에 든 인증서나 입력한 발급자 인증서로 응답 서명을 검증합니다 | 정보 표 |
+| ASN.1 / DER 구조 보기 (`asn1`) | PEM, Base64, DER 입력을 태그 트리로 표시합니다 (최대 500개 노드) | 트리 |
+| 인증서 비교 (`compare`) | 두 인증서의 주체, 발급자, 유효기간, 공개키(지문), SAN을 비교합니다 | 같음/다름 표 |
+| PKCS#7 / CMS 서명 확인 (`cms`) | 첨부 서명과 분리 서명(원본 파일 입력)의 서명자별 서명 값을 검증합니다 | 서명자별 유효/무효 |
+| 원격 TLS 점검 (`tls`, **Spring 판만**) | 호스트에 TLS로 접속해 프로토콜, 암호군, 서버가 보낸 인증서 체인을 보여줍니다. JDK 기본 신뢰 저장소와 호스트 이름 검증을 그대로 적용합니다. 연결 제한 시간은 5초입니다 | 정보 표 |
+
+발급과 검증 규칙:
+- **사설 CA 발급**은 CA 인증서에 `CA:TRUE`와 `keyCertSign` 권한이 있는지, CA 개인키가 인증서와 맞는지 먼저 확인합니다
+- 발급본에는 CSR의 확장 중 **SAN만** 옮깁니다. `CA:FALSE`, `digitalSignature`(RSA는 `keyEncipherment` 추가), `serverAuth` EKU는 직접 붙입니다. CSR에 CA 권한 같은 확장을 넣어도 반영되지 않습니다
+- 일련번호는 159비트 난수이고, 시계 오차를 고려해 유효 시작을 5분 앞당깁니다
+- **CMS 확인은 서명 값만 검증**합니다. 서명자 인증서가 믿을 만한 CA에서 발급됐는지는 따로 확인해야 합니다
+
+보안 주의:
+- 생성한 개인키는 **암호화되지 않은 PKCS#8 PEM**으로 내려받습니다. 서버에는 저장하지 않습니다
+- Spring 판에서 사설 CA 발급을 쓰면 **CA 개인키를 서버로 보냅니다**. 비밀키를 서버에 보내지 않으려면 [WASM 판](wasm/README.md)을 사용하세요. WASM 판은 모든 도구를 브라우저 안에서 처리합니다
+- 원격 TLS 점검은 서버가 외부 호스트로 접속하는 기능입니다. 내부망 조회(SSRF)를 막기 위해 DNS 결과가 모두 공인 주소일 때만 연결하고, 사설·루프백·링크 로컬 주소는 거부합니다. 포트는 1~65535만 받습니다
+
 ## API
 
 웹 화면이 사용하는 API입니다. `curl`로 자동화할 때도 쓸 수 있습니다.
@@ -150,3 +179,55 @@ curl -o out.zip -F files=@ssl.crt -F files=@chain.crt -F files=@ssl.key \
 | `formats` | `FULLCHAIN_PEM` `CERT_PEM` `CHAIN_PEM` `KEY_PEM` `COMBINED_PEM` `PFX` `JKS` `TRUSTSTORE_JKS` `P7B` `DER` |
 | `baseName`, `outAlias`, `outPassword` | 출력 파일명, 별칭, 비밀번호 (영문·숫자·기호만 가능. 한글 등은 Java 에서 PFX 를 열 수 없어 거부합니다) |
 | `includeRoot` (기본 true), `legacyPfx` (기본 false), `keyFormat` (`PKCS8` / `TRADITIONAL`), `encryptKey` (기본 false), `noPassword` (기본 false) | 출력 옵션. `noPassword=true` 이면 `outPassword` 를 무시하고 PFX 를 빈 비밀번호로 만듭니다 (JKS·트러스트스토어·`encryptKey` 와 함께 쓸 수 없음). 이전의 `keyFormat=PKCS8_ENCRYPTED` 는 `PKCS8` + `encryptKey=true` 와 같습니다 |
+
+### PKI 도구 API
+
+`POST /api/tools/{tool}` (multipart)로 호출합니다. `{tool}`은 위 표의 이름입니다. 오류는 다른 API와 같이 `{"message": "..."}`와 4xx 상태로 돌려줍니다.
+
+```bash
+# CSR 생성
+curl -F commonName=example.com -F keyType=EC -F san=example.com,www.example.com http://localhost:8080/api/tools/csr
+
+# 사설 CA로 발급
+curl -F files=@request.csr -F caFiles=@ca.pem -F caFiles=@ca.key -F days=365 http://localhost:8080/api/tools/issue
+
+# 분리 서명 CMS 확인
+curl -F files=@data.p7s -F contentFiles=@data.bin http://localhost:8080/api/tools/cms
+```
+
+모든 도구는 같은 형식의 JSON을 돌려줍니다. WASM 판도 같은 형식입니다.
+
+```json
+{
+  "messages": ["안내 문구"],
+  "sections": [{"title": "제목", "level": "info", "rows": [{"label": "항목", "value": "값"}]}],
+  "files": [{"name": "request.csr", "content": "-----BEGIN CERTIFICATE REQUEST-----..."}],
+  "tree": {"name": "ASN.1", "value": "...", "children": []}
+}
+```
+
+| 도구 | 파라미터 |
+|---|---|
+| `self-signed` | `commonName`(필수), `keyType` (`RSA`/`EC`, 기본 RSA), `keyBits` (2048~4096, 기본 2048), `san`, `isCa` (기본 false) |
+| `csr` | `commonName`(필수), `keyType`, `keyBits`, `san` |
+| `csr-decode`, `asn1` | `files` 또는 `text` |
+| `issue` | CSR `files`/`text`, CA 인증서와 개인키 `caFiles`/`caText`, `caPassword`, `days` (1~825, 기본 365) |
+| `match` | 인증서·개인키 `files`/`text`, `password`, 비교할 CSR `csrText`(선택) |
+| `crl`, `ocsp` | `files`/`text`, 서명 검증용 발급자 인증서 `issuerFiles`/`issuerText`(선택) |
+| `compare` | 첫 번째 인증서 `files`/`text`, 두 번째 인증서 `filesB`/`textB` |
+| `cms` | CMS `files`/`text`, 분리 서명 원본 `contentFiles`/`contentText`(선택) |
+| `tls` | `host`(필수), `port` (기본 443) |
+
+`files`처럼 하나만 쓰는 입력에 파일을 여러 개 보내면 첫 번째 파일만 씁니다. 파일과 텍스트를 함께 보내면 파일을 먼저 씁니다 (`issue`의 CA, `match`의 입력은 파일과 텍스트를 합쳐서 읽습니다).
+
+## 코드 구조
+
+| 경로 | 내용 |
+|---|---|
+| `cert/` | 입력 해석, 체인 정렬, 점검, 출력 생성 (`InputParser`, `ChainResolver`, `CertificateChecks`, `Exporter`, `ConverterService`) |
+| `tools/` | PKI 도구 (`PkiToolsService`, 공통 응답 `ToolResult`) |
+| `web/` | `/api/analyze`·`/api/convert` (`ConverterController`), `/api/tools/{tool}` (`ToolsController`), 오류 응답 (`ApiExceptionHandler`) |
+| `resources/static/` | 변환 화면 `index.html`·`app.js`, PKI 도구 화면 `tools.html`·`tools.js`, 공통 `style.css` |
+| `wasm/` | 같은 기능의 Go 구현과 WebAssembly 빌드 ([wasm/README.md](wasm/README.md)) |
+
+자바 경로는 `src/main/java/com/yeongsby/sslconverter` 기준입니다. 테스트는 `./mvnw test`로 실행합니다 (`PkiToolsServiceTests`는 CSR 생성·디코딩, 발급과 짝 확인, CA 아닌 인증서로 발급 거부, CRL·OCSP·ASN.1·비교, CMS 서명 검증을 다룹니다).
